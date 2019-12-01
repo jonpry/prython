@@ -1,3 +1,4 @@
+#include <stdio.h>
 
 int foo;
 char *bar = (char*)&foo;
@@ -9,5 +10,8 @@ struct {
 } foos;
 
 int main(){
+  if(bar){
+    printf("foo\n");
+  }
   return 0;
 }
