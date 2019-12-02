@@ -162,10 +162,10 @@ magic_methods = ["add","sub","mul","floordiv","truediv","mod","pow","lshift","rs
                  ];
 
 ############## Types for integral python types
-vtable_type = ir.global_context.get_identified_type("vtable")
+vtable_type = ir.global_context.get_identified_type("struct.vtable_t")
 pvtable_type = vtable_type.as_pointer()
 
-pyobj_type = ir.global_context.get_identified_type("PyObject")
+pyobj_type = ir.global_context.get_identified_type("class.pyobj")
 pyobj_type.set_body(pvtable_type)
 ppyobj_type = pyobj_type.as_pointer()
 
@@ -249,6 +249,18 @@ load_attr = ir.Function(module, load_attr_type, name="load_attr")
 builtin_print = ir.Function(module, fnty, name="builtin_print")
 builtin_buildclass = ir.Function(module, fnty, name="builtin_buildclass")
 
+builtin_print_wrap = ir.Function(module, fnty, name="builtin_print_wrap")
+#builtin_print_wrap.attributes.add("noalias")
+builtin_print_wrap.attributes.add("noinline")
+super(ir.values.AttributeSet,builtin_print_wrap.args[0].attributes).add("readonly")
+super(ir.values.AttributeSet,builtin_print_wrap.args[0].attributes).add("nocapture")
+super(ir.values.AttributeSet,builtin_print_wrap.args[1].attributes).add("readonly")
+super(ir.values.AttributeSet,builtin_print_wrap.args[1].attributes).add("nocapture")
+
+block = builtin_print_wrap.append_basic_block(name="entry")
+builder = ir.IRBuilder(block)
+builder.ret(builder.call(builtin_print,builtin_print_wrap.args))
+
 binop_type = ir.FunctionType(ppyobj_type, (ppyobj_type, ppyobj_type, int32, int32))
 binop = ir.Function(module, binop_type, name="binop")
 
@@ -305,6 +317,7 @@ def binary_op(builder,stack_ptr,op):
 
 ############## Enumerate all function definitions
 i=0
+codes.reverse()
 func_map = {}
 for c in codes:
    print("*************")
@@ -397,7 +410,7 @@ for c in codes:
    for s in range(len(c.co_names)):
       l = builder.alloca(ppyobj_type,1)
       if c.co_names[s] == "print":
-         builder.store(builder.bitcast(get_constant(builtin_print),ppyobj_type),l)
+         builder.store(builder.bitcast(get_constant(builtin_print_wrap),ppyobj_type),l)
       else:
          builder.store(ir.Constant(ppyobj_type,None),l)
       name.append(l)
@@ -422,6 +435,9 @@ for c in codes:
    stack_ptr = 0
    ins_idx=0
    branch_stack = {}
+
+   if c.co_argcount:
+       builder.store(func.args[0],local[0])
    for ins in dis.get_instructions(c):
        print(ins)
        a,block_idx,block,builder = blocks[bisect.bisect_right(ins_idxs,ins_idx)-1]
@@ -529,8 +545,8 @@ for c in codes:
          stack_ptr+=1
        elif ins.opname=='POP_JUMP_IF_FALSE':
          v = builder.load(stack[stack_ptr-1])
-         c = builder.icmp_unsigned("==", v, ppyobj_type(None))
-         builder.cbranch(c,blocks_by_ofs[ins.arg],blocks[block_idx+1][2])
+         c = builder.call(truth,(v,))
+         builder.cbranch(builder.not_(c),blocks_by_ofs[ins.arg],blocks[block_idx+1][2])
          stack_ptr-=1
          branch_stack[ins.arg] = stack_ptr
          did_jmp = True

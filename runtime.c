@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <stdbool.h>
 #include <string.h>
 #include <math.h>
 
@@ -16,7 +17,7 @@ typedef struct pyobj* (*fnty)(struct pyobj *v1, struct pyobj *v2);
 
 typedef struct {
   uint64_t rtti;
-  fnty dispatch[];
+  fnty dispatch[101]; //TODO: this has to be right, hard to sync with dump.py
 } vtable_t;
 
 extern const vtable_t vtable_int, vtable_float, vtable_str, vtable_code, vtable_tuple, vtable_func, vtable_class, vtable_bool, vtable_NotImplemented;
@@ -60,6 +61,8 @@ extern PyNoImp_t global_noimp;
 
 const char *rtti_strings[] = {"int", "float", "str", "code", "tuple", "func", "class", "bool", "NotImplemented"};
 #define NOIMP_RTTI 8
+#define INT_RTTI 0
+#define FLOAT_RTTI 1
 
 #undef malloc
 void* malloc(size_t) __attribute__((returns_nonnull));
@@ -101,7 +104,7 @@ PyObject_t* load_attr(PyObject_t *v1, PyObject_t *v2){
    return 0;
 }
 
-PyObject_t* builtin_print(PyObject_t *v1, PyObject_t *v2){
+__attribute__((noinline)) __attribute__((readonly)) PyObject_t* builtin_print(PyObject_t *v1, PyObject_t *v2){
    printf("Print %p %p\n", v1, v2);
    dump(v1);
    dump(v2);
@@ -132,6 +135,18 @@ __attribute__((always_inline)) PyObject_t* binop(PyObject_t *v1, PyObject_t *v2,
    return (PyObject_t*)&global_noimp;
 }
 
+__attribute__((always_inline)) bool truth(PyObject_t *v1){
+   //printf("truth\n");
+   //dump(v1);
+   if(!v1)
+     return false;
+   if(v1->vtable->rtti == INT_RTTI)
+     return false;
+   if(v1->vtable->rtti == FLOAT_RTTI)
+     return false;
+   //printf("Was true\n");
+   return true;
+}
 
 #define BINARY_DECL(f,t,v,op) \
 __attribute__((always_inline)) PyObject_t* f(PyObject_t *v1, PyObject_t *v2){ \
@@ -167,8 +182,8 @@ BINARY_DECL_INT_TO_FLOAT(float_mul,PyFloat_t,vtable_float,aval*val)
 BINARY_DECL_INT_TO_FLOAT(float_rmul,PyFloat_t,vtable_float,aval*val)
 BINARY_DECL_INT_TO_FLOAT(float_sub,PyFloat_t,vtable_float,aval-val)
 BINARY_DECL_INT_TO_FLOAT(float_rsub,PyFloat_t,vtable_float,aval-val)
-BINARY_DECL_INT_TO_FLOAT(float_mod,PyFloat_t,vtable_float,remainder(aval,val))
-BINARY_DECL_INT_TO_FLOAT(float_rmod,PyFloat_t,vtable_float,remainder(aval,val))
+BINARY_DECL_INT_TO_FLOAT(float_mod,PyFloat_t,vtable_float,__builtin_fmod(aval,val))
+BINARY_DECL_INT_TO_FLOAT(float_rmod,PyFloat_t,vtable_float,__builtin_fmod(aval,val))
 BINARY_DECL_INT_TO_FLOAT(float_truediv,PyFloat_t,vtable_float,aval/val)
 BINARY_DECL_INT_TO_FLOAT(float_rtruediv,PyFloat_t,vtable_float,aval/val)
 BINARY_DECL_INT_TO_FLOAT(float_floordiv,PyFloat_t,vtable_float,floor(aval/val))

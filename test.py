@@ -16,3 +16,8 @@ a = a / 2
 print(a)
 if(a):
   print("true")
+
+def bar(a):
+  return a * 2
+
+print(bar(a))
