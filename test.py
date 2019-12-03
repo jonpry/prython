@@ -21,3 +21,8 @@ def bar(a):
   return a * 2
 
 print(bar(a))
+print(str(a) + " true")
+
+a = (2,3)
+print(a)
+print(True)

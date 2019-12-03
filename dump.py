@@ -146,14 +146,15 @@ def make_tuple_type(l):
    return t,p
 
 
-magic_methods = ["add","sub","mul","floordiv","truediv","mod","pow","lshift","rshift","and","xor","or",
+magic_methods = ["float","str",
+                 "add","sub","mul","floordiv","truediv","mod","pow","lshift","rshift","and","xor","or",
                  "radd","rsub","rmul","rfloordiv","rtruediv","rmod","rpow","rlshift","rrshift","rand","rxor","ror",
                  "iadd","isub","imul","itruediv","ifloordiv","imod","ipow","ilshift","irshift","iand","ixor","ior",
-                 "neg","pos","abs","invert","complex","int","long","float","oct","hex","complex",
+                 "neg","pos","abs","invert","complex","int","long","oct","hex","complex",
                  "index","round","trunc","floor","ceil",
                  "enter","exit","iter","next",
                  "lt","le","eq","ne","ge","gt",
-                 "new", "init", "del", "repr", "str", "bytes", "format", "hash", "bool",
+                 "new", "init", "del", "repr", "bytes", "format", "hash", "bool",
                  "getattr","getattribute","setattr","delatt","dir",
                  "get","set","delete","set_name","slots",
                  "init_subclass","prepare","class","instancecheck","subclasscheck","class_getitem","call",
@@ -196,7 +197,7 @@ pyclass_type.set_body(pyfunc_type)
 ppyclass_type = pyclass_type.as_pointer()
 
 pybool_type = ir.global_context.get_identified_type("PyBool")
-pybool_type.set_body(pyint_type)
+pybool_type.set_body(pyobj_type, int64)
 ppybool_type = pybool_type.as_pointer()
 
 pyexc_type = ir.global_context.get_identified_type("PyExc")
@@ -211,10 +212,17 @@ ppynoimp_type = pynoimp_type.as_pointer()
 i=0
 
 #Add all the members to the various vtables
-integrals = {"int" : { "mul" , "add", "xor", "or", "and", "radd", "mod", "floordiv"}, 
+integrals = {"int" : { "mul" , "add", "xor", "or", "and", "radd", "mod", "floordiv", "float", "str"}, 
              "float" : { "mul", "add", "sub", "pow", "radd", "rmul", "rsub", "rpow", "mod", "truediv", "rmod", "rtruediv",
-                         "floordiv", "rfloordiv"}, 
-             "str" : {}, "code" : {}, "tuple" : {}, "func" : {}, "class" : {}, "bool" : {}, "NotImplemented" : {}, "exception" : {}}
+                         "floordiv", "rfloordiv", "str"},
+             "tuple" : { "str" }, 
+             "str" : { "add", "str"}, 
+             "code" : {}, 
+             "func" : {}, 
+             "class" : {}, 
+             "bool" : { "str" }, 
+             "NotImplemented" : {}, "exception" : {},
+             "list" : {}, "dict" : {}}
 
 vtable_map = {}
 for t in integrals.keys():
@@ -248,6 +256,18 @@ load_attr = ir.Function(module, load_attr_type, name="load_attr")
 
 builtin_print = ir.Function(module, fnty, name="builtin_print")
 builtin_buildclass = ir.Function(module, fnty, name="builtin_buildclass")
+
+builtin_repr = ir.Function(module, fnty, name="builtin_repr")
+builtin_str = ir.Function(module, fnty, name="builtin_str")
+
+name_to_slots = ["repr","str"]
+for name in name_to_slots:
+   func = locals()["builtin_" + name]
+   block = func.append_basic_block(name="entry")
+   builder = ir.IRBuilder(block)
+   v = builder.load(builder.gep(func.args[0],(int32(0),int32(0))))
+   p = builder.load(builder.gep(v,(int32(0),int32(1),int32(magic_methods.index(name)))))
+   builder.ret(builder.call(p,func.args))
 
 builtin_print_wrap = ir.Function(module, fnty, name="builtin_print_wrap")
 #builtin_print_wrap.attributes.add("noalias")
@@ -346,6 +366,10 @@ def get_constant(con):
       g = ir.GlobalVariable(module,pyint_type,"global_" + str(const_idx))
       const_map[tup] = g
       g.initializer = pyint_type([[vtable_map['int']],ir.Constant(int64,con)])
+   elif type(con) == bool:
+      g = ir.GlobalVariable(module,pybool_type,"global_" + str(const_idx))
+      const_map[tup] = g
+      g.initializer = pybool_type([[vtable_map['bool']],ir.Constant(int64,int(con))])
    elif type(con) == float:
       g = ir.GlobalVariable(module,pyfloat_type,"global_" + str(const_idx))
       const_map[tup] = g
@@ -377,6 +401,7 @@ def get_constant(con):
       const_map[tup] = g
       g.initializer = pyfunc_type([[vtable_map['func']],c,get_constant(con.name).bitcast(ppystr_type)])
    else:
+      print(type(con))
       assert(False)   
    g.global_constant = True
    return g
@@ -411,7 +436,10 @@ for c in codes:
       l = builder.alloca(ppyobj_type,1)
       if c.co_names[s] == "print":
          builder.store(builder.bitcast(get_constant(builtin_print_wrap),ppyobj_type),l)
-      else:
+      elif c.co_names[s] == "str":
+         builder.store(builder.bitcast(get_constant(builtin_str),ppyobj_type),l)
+      elif c.co_names[s] == "repr":
+         builder.store(builder.bitcast(get_constant(builtin_repr),ppyobj_type),l)
          builder.store(ir.Constant(ppyobj_type,None),l)
       name.append(l)
 
