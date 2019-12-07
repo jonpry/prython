@@ -4,6 +4,7 @@
 #include <stdbool.h>
 #include <string.h>
 #include <math.h>
+#include <assert.h>
 
 extern "C" {
 
@@ -340,6 +341,7 @@ PyObject_t* list_str(PyObject_t *v1, PyObject_t *v2){
 }
 
 PyObject_t* tuple_str(PyObject_t *v1, PyObject_t *v2){
+    assert(false);
     return join(v1,v2,'(',')');
 }
 

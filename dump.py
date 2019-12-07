@@ -294,6 +294,26 @@ binop = ir.Function(module, binop_type, name="binop")
 truth_type = ir.FunctionType(int1, (ppyobj_type,))
 truth = ir.Function(module, truth_type, name="truth")
 
+di_file = module.add_debug_info("DIFile", {
+    "filename":        "test.py",
+    "directory":       "",
+})
+
+di_compileunit = module.add_debug_info("DICompileUnit", {
+    "language":        ir.DIToken("DW_LANG_Python"),
+    "file":            di_file,
+    "producer":        "LPython",
+    "runtimeVersion":  0,
+    "isOptimized":     True,
+  }, is_distinct=True)
+
+module.add_named_metadata("llvm.dbg.cu").add(di_compileunit)
+module.add_named_metadata("llvm.ident").add(module.add_metadata(["LPython"]))
+flags = module.add_named_metadata("llvm.module.flags")
+flags.add(module.add_metadata([int32(2), "Dwarf Version", int32(4)]))
+flags.add(module.add_metadata([int32(2), "Debug Info Version", int32(3)]))
+flags.add(module.add_metadata([int32(1), "wchar_size", int32(4)]))
+
 ############## Helper code
 
 def debug(builder, s, *args):
@@ -424,10 +444,27 @@ for c in codes:
 
 i=0
 
+di_func_type = module.add_debug_info("DISubroutineType", {
+        # None as `null`
+        "types":           module.add_metadata([None]),
+     })
+
+
 ############## Emit llvm for each code section
 for c in codes:
    print("*************")
    func = func_map[c]
+
+   di_func = module.add_debug_info("DISubprogram", {
+            "name":            "my_func",
+            "file":            di_file,
+            "line":            c.co_firstlineno,
+            "type":            di_func_type,
+            "isLocal":         False,
+            "unit":            di_compileunit,
+            }, is_distinct=True)
+
+
    block = func.append_basic_block(name="entry")
    builder = ir.IRBuilder(block) 
    stack = []
@@ -480,6 +517,11 @@ for c in codes:
        print(ins)
        a,block_idx,block,builder = blocks[bisect.bisect_right(ins_idxs,ins_idx)-1]
        did_jmp=False  
+       if ins.starts_line:
+          builder.debug_metadata = builder.module.add_debug_info("DILocation", {
+            "line":  ins.starts_line,
+            "scope": di_func,
+            })
        #debug(builder,"ins " + str(ins.offset))
        if ins.offset in branch_stack:
           stack_ptr = branch_stack[ins.offset]
