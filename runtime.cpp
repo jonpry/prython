@@ -51,6 +51,12 @@ public:
   pyobj *objs[];
 } PyTuple_t;
 
+typedef class pylist : public pyobj {
+public:
+  uint64_t sz, capacity;
+  pyobj **objs;
+} PyList_t;
+
 typedef struct pycode : public pyobj {
 public:
   PyObject_t *(*func)(PyObject_t* obj, PyObject_t *obj2);
@@ -255,7 +261,24 @@ PyObject_t* bool_str(PyObject_t *v1, PyObject_t *v2){
     return ret;
 }
 
-PyObject_t* tuple_str(PyObject_t *v1, PyObject_t *v2){
+PyObject_t* str_getitem(PyObject_t *v1, PyObject_t *v2){
+    PyStr_t *t = (PyStr_t*)v1;
+    PyInt_t *i = (PyInt_t*)v2;
+    char c = t->str[i->val];   
+
+    PyInt_t *ret = (PyInt_t*)malloc(sizeof(PyInt_t));
+    ret->val = c;
+    ret->vtable = &vtable_int;
+    return ret;
+}
+
+PyObject_t* tuple_getitem(PyObject_t *v1, PyObject_t *v2){
+    PyTuple_t *t = (PyTuple_t*)v1;
+    PyInt_t *i = (PyInt_t*)v2;
+    return t->objs[i->val];   
+}
+
+PyObject_t* join(PyObject_t *v1, PyObject_t *v2, char left, char right){
     PyTuple_t *t = (PyTuple_t*)v1;
     PyStr_t *strs[t->sz];
     size_t total_sz=0;
@@ -263,26 +286,73 @@ PyObject_t* tuple_str(PyObject_t *v1, PyObject_t *v2){
        strs[i] = (PyStr_t*)t->objs[i]->vtable->dispatch[STR_SLOT](t->objs[i],0);
        total_sz += strs[i]->sz;
     }
-    uint64_t str_sz = total_sz + 2 + t->sz - 1;
+    uint64_t str_sz = total_sz + 2 + (t->sz - 1)*2;
     PyStr_t *ret = (PyStr_t*)malloc(sizeof(PyStr_t) + str_sz + 1);
     ret->sz = str_sz;
     ret->vtable = &vtable_str;
 
     uint64_t pos=1;
-    ret->str[0] = '(';
+    ret->str[0] = left;
     for(uint64_t i=0; i < t->sz; i++){
        memcpy(ret->str+pos,strs[i]->str,strs[i]->sz);
        pos += strs[i]->sz;
-       if(i!=t->sz-1)
+       if(i!=t->sz-1){
           ret->str[pos++] = ',';      
+          ret->str[pos++] = ' ';      
+       }
     }
-    ret->str[pos++] = ')';      
+    ret->str[pos++] = right;      
     ret->str[pos++] = 0;      
 
     return ret;
 }
 
-PyObject_t* str_str(PyObject_t *v1, PyObject_t *v2){
+PyObject_t* list_str(PyObject_t *v1, PyObject_t *v2){
+    char left = '[';
+    char right = ']';
+    PyList_t *t = (PyList_t*)v1;
+    PyStr_t *strs[t->sz];
+    size_t total_sz=0;
+    for(uint64_t i=0; i < t->sz; i++){
+       strs[i] = (PyStr_t*)t->objs[i]->vtable->dispatch[STR_SLOT](t->objs[i],0);
+       total_sz += strs[i]->sz;
+    }
+    uint64_t str_sz = total_sz + 2 + (t->sz - 1)*2;
+    PyStr_t *ret = (PyStr_t*)malloc(sizeof(PyStr_t) + str_sz + 1);
+    ret->sz = str_sz;
+    ret->vtable = &vtable_str;
+
+    uint64_t pos=1;
+    ret->str[0] = left;
+    for(uint64_t i=0; i < t->sz; i++){
+       memcpy(ret->str+pos,strs[i]->str,strs[i]->sz);
+       pos += strs[i]->sz;
+       if(i!=t->sz-1){
+          ret->str[pos++] = ',';      
+          ret->str[pos++] = ' ';      
+       }
+    }
+    ret->str[pos++] = right;      
+    ret->str[pos++] = 0;      
+
+    return ret;
+
+}
+
+PyObject_t* tuple_str(PyObject_t *v1, PyObject_t *v2){
+    return join(v1,v2,'(',')');
+}
+
+PyObject_t* func_str(PyObject_t *v1, PyObject_t *v2){
+    PyFunc_t* func = (PyFunc_t*)v1;
+    PyStr_t *ret = (PyStr_t*)malloc(sizeof(PyStr_t) + func->str->sz + strlen("<function  >") + 1);
+    ret->vtable = &vtable_str;
+    sprintf(ret->str,"<function %s>", func->str->str);
+    ret->sz = strlen(ret->str);
+    return ret;
+}
+
+__attribute__((always_inline)) PyObject_t* str_str(PyObject_t *v1, PyObject_t *v2){
     return v1;
 }
 

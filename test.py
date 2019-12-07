@@ -26,3 +26,17 @@ print(str(a) + " true")
 a = (2,3)
 print(a)
 print(True)
+print(False)
+print(bar)
+print(a[0])
+
+a = [0,1]
+
+def bam(a,b,*kwargs):
+   return a * 2
+
+print("hello")
+print(a)
+
+a = [[1,2],(0,1)]
+print(a)

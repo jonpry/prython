@@ -6,6 +6,7 @@ except ImportError:
     from io import StringIO
 
 from llvmlite import ir
+from llvmlite import binding as llvm
 
 ############## Stuff to print out pyc file
 INDENT = " " * 3
@@ -113,6 +114,7 @@ else:
 ############## Simple type decl stuff
 module = ir.Module(name=__file__)
 module.triple = "x86_64-unknown-linux-gnu"
+td = llvm.create_target_data("e-m:e-i64:64-f80:128-n8:16:32:64-S128")
 int1 = ir.IntType(1)
 int8 = ir.IntType(8)
 int32 = ir.IntType(32)
@@ -155,7 +157,7 @@ magic_methods = ["float","str",
                  "enter","exit","iter","next",
                  "lt","le","eq","ne","ge","gt",
                  "new", "init", "del", "repr", "bytes", "format", "hash", "bool",
-                 "getattr","getattribute","setattr","delatt","dir",
+                 "getattr","getattribute","setattr","delattr","dir",
                  "get","set","delete","set_name","slots",
                  "init_subclass","prepare","class","instancecheck","subclasscheck","class_getitem","call",
                  "len","length_hint","getitem","setitem","delitem","missing","reverse","contains",
@@ -169,6 +171,7 @@ pvtable_type = vtable_type.as_pointer()
 pyobj_type = ir.global_context.get_identified_type("class.pyobj")
 pyobj_type.set_body(pvtable_type)
 ppyobj_type = pyobj_type.as_pointer()
+pppyobj_type = ppyobj_type.as_pointer()
 
 fnty = ir.FunctionType(ppyobj_type, (ppyobj_type, ppyobj_type))
 vlist = [ir.IntType(64),ir.ArrayType(fnty.as_pointer(),len(magic_methods))]
@@ -208,6 +211,9 @@ pynoimp_type = ir.global_context.get_identified_type("PyNotImplemented")
 pynoimp_type.set_body(pyobj_type)
 ppynoimp_type = pynoimp_type.as_pointer()
 
+pylist_type = ir.global_context.get_identified_type("PyList")
+pylist_type.set_body(pyobj_type,int64,int64,pppyobj_type)
+ppylist_type = pylist_type.as_pointer()
 
 i=0
 
@@ -215,14 +221,15 @@ i=0
 integrals = {"int" : { "mul" , "add", "xor", "or", "and", "radd", "mod", "floordiv", "float", "str"}, 
              "float" : { "mul", "add", "sub", "pow", "radd", "rmul", "rsub", "rpow", "mod", "truediv", "rmod", "rtruediv",
                          "floordiv", "rfloordiv", "str"},
-             "tuple" : { "str" }, 
-             "str" : { "add", "str"}, 
+             "tuple" : { "str", "getitem" }, 
+             "str" : { "add", "str", "getitem"}, 
              "code" : {}, 
-             "func" : {}, 
+             "func" : { "str"}, 
              "class" : {}, 
              "bool" : { "str" }, 
-             "NotImplemented" : {}, "exception" : {},
-             "list" : {}, "dict" : {}}
+             "NotImplemented" : {},
+             "exception" : {},
+             "list" : { "str", }, "dict" : {}}
 
 vtable_map = {}
 for t in integrals.keys():
@@ -298,21 +305,24 @@ def pyslot(builder, o, slot):
   f = builder.gep(vtable,(int32(0),int32(1),int32(magic_methods.index(slot))))
   return builder.load(f)
 
-def binary_op(builder,stack_ptr,op):
+def binary_op(builder,stack_ptr,op,reverse=True):
   v1 = builder.load(stack[stack_ptr-1])
   stack_ptr-=1
   v2 = builder.load(stack[stack_ptr-1])
   stack_ptr-=1
 
   v = stack[stack_ptr]
-  builder.store(builder.call(binop,(v2,v1,int32(magic_methods.index(op)),int32(magic_methods.index("r" + op)))),v)
+  builder.store(builder.call(binop,(v2,v1,int32(magic_methods.index(op)),int32(magic_methods.index("r" + op) if reverse else -1))),v)
   stack_ptr+=1
   return stack_ptr
 
   slot1 = pyslot(builder,v1,op)
-  slot2 = pyslot(builder,v2,op)
   p1 = builder.icmp_unsigned("!=",slot1,fnty.as_pointer()(None))
-  p2 = builder.icmp_unsigned("!=",slot2,fnty.as_pointer()(None))
+  if reverse:
+     slot2 = pyslot(builder,v2,op)
+     p2 = builder.icmp_unsigned("!=",slot2,fnty.as_pointer()(None))
+  else:
+     p2 = int1(0)
 
   v = stack[stack_ptr]
                   
@@ -510,11 +520,24 @@ for c in codes:
          stack_ptr-=1
        elif ins.opname=='BUILD_TUPLE':
          t,p = make_tuple_type(ins.arg)
-         obj = builder.bitcast(builder.call(malloc,[int64(ins.arg)]),p)
-         builder.store(vtable_map['tuple'],builder.gep(obj,(int32(0),int32(0),int32(0))))
+         obj = builder.bitcast(builder.call(malloc,[int64(p.pointee.get_abi_size(td))]),p)
+         builder.store(vtable_map["tuple"],builder.gep(obj,(int32(0),int32(0),int32(0))))
          builder.store(int64(ins.arg),builder.gep(obj,(int32(0),int32(1))))
          for te in range(ins.arg):
             builder.store(builder.load(stack[stack_ptr-1]),builder.gep(obj,(int32(0),int32(2),int32(te))))
+            stack_ptr-=1
+         builder.store(builder.bitcast(obj,ppyobj_type),stack[stack_ptr])
+         stack_ptr+=1
+       elif ins.opname=='BUILD_LIST':
+         obj = builder.bitcast(builder.call(malloc,[int64(pylist_type.get_abi_size(td))]),ppylist_type)
+         builder.store(vtable_map["list"],builder.gep(obj,(int32(0),int32(0),int32(0))))
+         builder.store(int64(ins.arg),builder.gep(obj,(int32(0),int32(1))))
+         builder.store(int64(ins.arg),builder.gep(obj,(int32(0),int32(2))))
+         data = builder.bitcast(builder.call(malloc,[int64(pppyobj_type.get_abi_size(td))]),pppyobj_type)
+         builder.store(data,builder.gep(obj,(int32(0),int32(3))))
+
+         for te in range(ins.arg):
+            builder.store(builder.load(stack[stack_ptr-1]),builder.gep(data,(int32(te),)))
             stack_ptr-=1
          builder.store(builder.bitcast(obj,ppyobj_type),stack[stack_ptr])
          stack_ptr+=1
@@ -532,7 +555,7 @@ for c in codes:
          else:
             builder.store(builder.call(func,(ppyobj_type(None),ppyobj_type(None))),stack[stack_ptr])
          stack_ptr+=1
-       elif ins.opname=='MAKE_FUNCTION': #TODO
+       elif ins.opname=='MAKE_FUNCTION':
          func_name = builder.load(stack[stack_ptr-1])
          stack_ptr-=1
          code = builder.load(stack[stack_ptr-1])
@@ -546,17 +569,13 @@ for c in codes:
          else:
             assert(False)
 
-         obj = builder.bitcast(builder.call(malloc,[int64(ins.arg)]),ppyfunc_type)
+         obj = builder.bitcast(builder.call(malloc,[int64(pyfunc_type.get_abi_size(td))]),ppyfunc_type)
          builder.store(vtable_map['func'],builder.gep(obj,(int32(0),int32(0),int32(0))))
          builder.store(builder.bitcast(code,ppycode_type),builder.gep(obj,(int32(0),int32(1))))
          builder.store(builder.bitcast(func_name,ppystr_type),builder.gep(obj,(int32(0),int32(2))))
 
          builder.store(builder.bitcast(obj,ppyobj_type),stack[stack_ptr])
          stack_ptr+=1
-       elif ins.opname=='BINARY_SUBSCR': #TODO
-         stack_ptr-=1
-         stack_ptr-=1
-         stack_ptr+=1         
        elif ins.opname=='RETURN_VALUE':
          builder.ret(builder.load(stack[stack_ptr-1]))
          stack_ptr-=1
@@ -617,6 +636,8 @@ for c in codes:
          stack_ptr = binary_op(builder,stack_ptr,"truediv")
        elif ins.opname=='BINARY_FLOOR_DIVIDE':
          stack_ptr = binary_op(builder,stack_ptr,"floordiv")
+       elif ins.opname=='BINARY_SUBSCR':
+         stack_ptr = binary_op(builder,stack_ptr,"getitem",False)
        else:
          assert(False)
        assert(dis.stack_effect(ins.opcode,ins.arg) == stack_ptr - save_stack_ptr)
