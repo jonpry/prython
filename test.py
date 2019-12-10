@@ -40,3 +40,9 @@ print(a)
 
 a = [[1,2],(0,1)]
 print(a)
+
+print(1 > 2)
+print(a is None)
+
+def aaa(a,b=None,c=1):
+   pass

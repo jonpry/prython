@@ -192,7 +192,7 @@ ppycode_type = pycode_type.as_pointer()
 pystr_type, ppystr_type = make_str_type(0)
 
 pyfunc_type = ir.global_context.get_identified_type("PyFunc")
-pyfunc_type.set_body(pyobj_type, ppycode_type, ppystr_type)
+pyfunc_type.set_body(pyobj_type, ppycode_type, ppystr_type, make_tuple_type(0)[1])
 ppyfunc_type = pyfunc_type.as_pointer()
 
 pyclass_type = ir.global_context.get_identified_type("PyClass")
@@ -218,7 +218,7 @@ ppylist_type = pylist_type.as_pointer()
 i=0
 
 #Add all the members to the various vtables
-integrals = {"int" : { "mul" , "add", "xor", "or", "and", "radd", "mod", "floordiv", "float", "str"}, 
+integrals = {"int" : { "mul" , "add", "xor", "or", "and", "radd", "mod", "floordiv", "float", "str", "gt", "lt", "le", "ge", "ne", "eq" }, 
              "float" : { "mul", "add", "sub", "pow", "radd", "rmul", "rsub", "rpow", "mod", "truediv", "rmod", "rtruediv",
                          "floordiv", "rfloordiv", "str"},
              "tuple" : { "str", "getitem" }, 
@@ -229,7 +229,8 @@ integrals = {"int" : { "mul" , "add", "xor", "or", "and", "radd", "mod", "floord
              "bool" : { "str" }, 
              "NotImplemented" : {},
              "exception" : {},
-             "list" : { "str", }, "dict" : {}}
+             "list" : { "str", }, 
+             "dict" : {}}
 
 vtable_map = {}
 for t in integrals.keys():
@@ -302,13 +303,13 @@ di_file = module.add_debug_info("DIFile", {
 di_compileunit = module.add_debug_info("DICompileUnit", {
     "language":        ir.DIToken("DW_LANG_Python"),
     "file":            di_file,
-    "producer":        "LPython",
+    "producer":        "Prython",
     "runtimeVersion":  0,
     "isOptimized":     True,
   }, is_distinct=True)
 
 module.add_named_metadata("llvm.dbg.cu").add(di_compileunit)
-module.add_named_metadata("llvm.ident").add(module.add_metadata(["LPython"]))
+module.add_named_metadata("llvm.ident").add(module.add_metadata(["Prython"]))
 flags = module.add_named_metadata("llvm.module.flags")
 flags.add(module.add_metadata([int32(2), "Dwarf Version", int32(4)]))
 flags.add(module.add_metadata([int32(2), "Debug Info Version", int32(3)]))
@@ -397,7 +398,7 @@ def get_constant(con):
       const_map[tup] = g
       g.initializer = pyint_type([[vtable_map['int']],ir.Constant(int64,con)])
    elif type(con) == bool:
-      g = ir.GlobalVariable(module,pybool_type,"global_" + str(const_idx))
+      g = ir.GlobalVariable(module,pybool_type,"global_" + str(con).lower())
       const_map[tup] = g
       g.initializer = pybool_type([[vtable_map['bool']],ir.Constant(int64,int(con))])
    elif type(con) == float:
@@ -419,7 +420,8 @@ def get_constant(con):
       const_map[tup] = g
       cons = []
       for c in con:
-        cons.append(get_constant(c).bitcast(ppyobj_type))
+        c = get_constant(c)
+        cons.append(c.bitcast(ppyobj_type) if c else None)
       g.initializer = t([[vtable_map['tuple']], int64(len(con)), ir.ArrayType(ppyobj_type,len(con))(cons)])    
    elif isinstance(con, ir.Function):
       c = ir.GlobalVariable(module,pycode_type,"global_" + str(const_idx))      
@@ -429,12 +431,15 @@ def get_constant(con):
 
       g = ir.GlobalVariable(module,pyfunc_type,"global_" + str(const_idx+1))      
       const_map[tup] = g
-      g.initializer = pyfunc_type([[vtable_map['func']],c,get_constant(con.name).bitcast(ppystr_type)])
+      g.initializer = pyfunc_type([[vtable_map['func']],c,get_constant(con.name).bitcast(ppystr_type),make_tuple_type(0)[1](None)])
    else:
       print(type(con))
       assert(False)   
    g.global_constant = True
    return g
+
+get_constant(False)
+get_constant(True)
 
 #Apply get_constant to constant table contents
 i=0
@@ -603,6 +608,7 @@ for c in codes:
          code = builder.load(stack[stack_ptr-1])
          stack_ptr-=1
 
+         args=None
          if ins.arg == 0:         
             pass
          elif ins.arg == 1:         
@@ -615,6 +621,10 @@ for c in codes:
          builder.store(vtable_map['func'],builder.gep(obj,(int32(0),int32(0),int32(0))))
          builder.store(builder.bitcast(code,ppycode_type),builder.gep(obj,(int32(0),int32(1))))
          builder.store(builder.bitcast(func_name,ppystr_type),builder.gep(obj,(int32(0),int32(2))))
+         if args:
+            builder.store(builder.bitcast(args,make_tuple_type(0)[1]),builder.gep(obj,(int32(0),int32(3))))
+         else:
+            builder.store(make_tuple_type(0)[1](None),builder.gep(obj,(int32(0),int32(3))))
 
          builder.store(builder.bitcast(obj,ppyobj_type),stack[stack_ptr])
          stack_ptr+=1
@@ -680,6 +690,18 @@ for c in codes:
          stack_ptr = binary_op(builder,stack_ptr,"floordiv")
        elif ins.opname=='BINARY_SUBSCR':
          stack_ptr = binary_op(builder,stack_ptr,"getitem",False)
+       elif ins.opname=='COMPARE_OP':
+         if ins.argval == "is":
+           v1 = builder.load(stack[stack_ptr-1])
+           stack_ptr-=1
+           v2 = builder.load(stack[stack_ptr-1])
+           stack_ptr-=1
+           p = builder.icmp_unsigned("==",v1,v2)
+           builder.store(builder.bitcast(builder.select(p,get_constant(True),get_constant(False)),ppyobj_type),stack[stack_ptr])
+           stack_ptr+=1
+         else:
+           opmap = { '>' : 'gt', '<' : 'lt', '>=' : 'ge', "<=" : 'le' }
+           stack_ptr = binary_op(builder,stack_ptr,opmap[ins.argval],False)       
        else:
          assert(False)
        assert(dis.stack_effect(ins.opcode,ins.arg) == stack_ptr - save_stack_ptr)

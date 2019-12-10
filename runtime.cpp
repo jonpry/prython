@@ -69,10 +69,16 @@ public:
   PyStr_t *str;
 } PyFunc_t;
 
+typedef class pybool : public pyobj {
+public:
+  int64_t val;
+} PyBool_t;
+
 typedef class pynoimp : public pyobj {
 } PyNoImp_t;
 
 extern PyNoImp_t global_noimp;
+extern PyBool_t global_false, global_true;
 
 const char *rtti_strings[] = {"int", "float", "tuple", "str", "code", "func", "class", "bool", "NotImplemented"};
 #define NOIMP_RTTI 8
@@ -184,6 +190,17 @@ __attribute__((always_inline)) PyObject_t* f(PyObject_t *v1, PyObject_t *v2){ \
    return ret; \
 }
 
+#define BOOL_DECL(f,t,v,op) \
+__attribute__((always_inline)) PyObject_t* f(PyObject_t *v1, PyObject_t *v2){ \
+   if(v2->vtable->rtti != v.rtti) \
+     return &global_noimp; \
+   int64_t aval = ((t*)v1)->val; \
+   int64_t val = ((t*)v2)->val; \
+   bool res =  op; \
+   return res?&global_true:&global_false; \
+}
+
+
 #define BINARY_DECL_INT_TO_FLOAT(f,t,v,...) \
 __attribute__((always_inline)) PyObject_t* f(PyObject_t *v1, PyObject_t *v2){ \
    double val=0; \
@@ -231,6 +248,14 @@ BINARY_DECL(int_lshift,PyInt_t,vtable_int,aval << val)
 BINARY_DECL(int_rshift,PyInt_t,vtable_int,aval >> val)
 BINARY_DECL(int_floordiv,PyInt_t,vtable_int,aval / val)
 BINARY_DECL(int_mod,PyInt_t,vtable_int,aval % val)
+
+BOOL_DECL(int_gt,PyInt_t,vtable_int,aval > val) 
+BOOL_DECL(int_lt,PyInt_t,vtable_int,aval < val)
+BOOL_DECL(int_ge,PyInt_t,vtable_int,aval >= val) 
+BOOL_DECL(int_le,PyInt_t,vtable_int,aval <= val) 
+BOOL_DECL(int_ne,PyInt_t,vtable_int,aval != val) 
+BOOL_DECL(int_eq,PyInt_t,vtable_int,aval == val) 
+
 
 PyObject_t* float_str(PyObject_t *v1, PyObject_t *v2){
     char buf[32];
@@ -341,7 +366,7 @@ PyObject_t* list_str(PyObject_t *v1, PyObject_t *v2){
 }
 
 PyObject_t* tuple_str(PyObject_t *v1, PyObject_t *v2){
-    assert(false);
+    //assert(false);
     return join(v1,v2,'(',')');
 }
 
