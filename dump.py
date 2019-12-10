@@ -173,7 +173,7 @@ pyobj_type.set_body(pvtable_type)
 ppyobj_type = pyobj_type.as_pointer()
 pppyobj_type = ppyobj_type.as_pointer()
 
-fnty = ir.FunctionType(ppyobj_type, (ppyobj_type, int64, ppyobj_type))
+fnty = ir.FunctionType(ppyobj_type, (pppyobj_type, int64, ppyobj_type))
 vlist = [ir.IntType(64),ir.ArrayType(fnty.as_pointer(),len(magic_methods))]
 vtable_type.set_body(*vlist)
 
@@ -253,6 +253,12 @@ malloc_type = ir.FunctionType(int8.as_pointer(), (int64,))
 malloc = ir.Function(module, malloc_type, name="malloc")
 malloc.return_value.add_attribute("nonnull")
 
+stacksave_type = ir.FunctionType(int8.as_pointer(), [])
+stacksave = ir.Function(module, stacksave_type, name="llvm.stacksave")
+
+stackrestore_type = ir.FunctionType(ir.VoidType(), (int8.as_pointer(),))
+stackrestore = ir.Function(module, stackrestore_type, name="llvm.stackrestore")
+
 printf_type = ir.FunctionType(int8.as_pointer(), (int8.as_pointer(),), var_arg=True)
 printf = ir.Function(module, printf_type, name="printf")
 
@@ -273,8 +279,13 @@ for name in name_to_slots:
    func = locals()["builtin_" + name]
    block = func.append_basic_block(name="entry")
    builder = ir.IRBuilder(block)
-   v = builder.load(builder.gep(func.args[0],(int32(0),int32(0))))
+   print(func.args[0])
+   v = builder.load(builder.gep(func.args[0],(int32(0),)))
+   print(v)
+   v = builder.load(builder.gep(v,(int32(0),int32(0))))
+   print(v)
    p = builder.load(builder.gep(v,(int32(0),int32(1),int32(magic_methods.index(name)))))
+   print(p)
    builder.ret(builder.call(p,func.args))
 
 builtin_print_wrap = ir.Function(module, fnty, name="builtin_print_wrap")
@@ -517,7 +528,7 @@ for c in codes:
    branch_stack = {}
 
    if c.co_argcount:
-       builder.store(func.args[0],local[0])
+       builder.store(builder.load(func.args[0]),local[0])
    for ins in dis.get_instructions(c):
        print(ins)
        a,block_idx,block,builder = blocks[bisect.bisect_right(ins_idxs,ins_idx)-1]
@@ -589,19 +600,26 @@ for c in codes:
          builder.store(builder.bitcast(obj,ppyobj_type),stack[stack_ptr])
          stack_ptr+=1
        elif ins.opname=='CALL_FUNCTION': #TODO
-         args = []
+         savestack = builder.call(stacksave,[])
+         args = builder.alloca(ppyobj_type,ins.arg)
          for i in range(ins.arg): 
-            args.append(builder.load(stack[stack_ptr-1]))
+            builder.store(builder.load(stack[stack_ptr-1]),builder.gep(args,(int32(i),)))
             stack_ptr-=1
+         #debug(builder,"post store " + str(ins.offset))
+
          func = builder.bitcast(builder.load(stack[stack_ptr-1]),ppyfunc_type)
          stack_ptr-=1
-         func = builder.load(builder.gep(func,(int32(0),int32(1))))
-         func = builder.load(builder.gep(func,(int32(0),int32(1))))
-         if len(args)==1:
-            builder.store(builder.call(func,(args[0],int64(1),ppyobj_type(None))),stack[stack_ptr])
+         code = builder.load(builder.gep(func,(int32(0),int32(1))))
+         target = builder.load(builder.gep(code,(int32(0),int32(1))))
+         #debug(builder,"deref " + str(ins.offset))
+
+         if ins.arg==1:
+            builder.store(builder.call(target,(args,int64(ins.arg),ppyobj_type(None))),stack[stack_ptr])
          else:
-            builder.store(builder.call(func,(ppyobj_type(None),int64(1),ppyobj_type(None))),stack[stack_ptr])
+            builder.store(builder.call(target,(ppyobj_type(None),int64(1),ppyobj_type(None))),stack[stack_ptr])
          stack_ptr+=1
+         builder.call(stackrestore,[savestack])
+
        elif ins.opname=='MAKE_FUNCTION':
          func_name = builder.load(stack[stack_ptr-1])
          stack_ptr-=1
