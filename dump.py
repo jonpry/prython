@@ -173,7 +173,7 @@ pyobj_type.set_body(pvtable_type)
 ppyobj_type = pyobj_type.as_pointer()
 pppyobj_type = ppyobj_type.as_pointer()
 
-fnty = ir.FunctionType(ppyobj_type, (ppyobj_type, ppyobj_type))
+fnty = ir.FunctionType(ppyobj_type, (ppyobj_type, int64, ppyobj_type))
 vlist = [ir.IntType(64),ir.ArrayType(fnty.as_pointer(),len(magic_methods))]
 vtable_type.set_body(*vlist)
 
@@ -282,8 +282,8 @@ builtin_print_wrap = ir.Function(module, fnty, name="builtin_print_wrap")
 builtin_print_wrap.attributes.add("noinline")
 super(ir.values.AttributeSet,builtin_print_wrap.args[0].attributes).add("readonly")
 super(ir.values.AttributeSet,builtin_print_wrap.args[0].attributes).add("nocapture")
-super(ir.values.AttributeSet,builtin_print_wrap.args[1].attributes).add("readonly")
-super(ir.values.AttributeSet,builtin_print_wrap.args[1].attributes).add("nocapture")
+super(ir.values.AttributeSet,builtin_print_wrap.args[2].attributes).add("readonly")
+super(ir.values.AttributeSet,builtin_print_wrap.args[2].attributes).add("nocapture")
 
 block = builtin_print_wrap.append_basic_block(name="entry")
 builder = ir.IRBuilder(block)
@@ -598,9 +598,9 @@ for c in codes:
          func = builder.load(builder.gep(func,(int32(0),int32(1))))
          func = builder.load(builder.gep(func,(int32(0),int32(1))))
          if len(args)==1:
-            builder.store(builder.call(func,(args[0],ppyobj_type(None))),stack[stack_ptr])
+            builder.store(builder.call(func,(args[0],int64(1),ppyobj_type(None))),stack[stack_ptr])
          else:
-            builder.store(builder.call(func,(ppyobj_type(None),ppyobj_type(None))),stack[stack_ptr])
+            builder.store(builder.call(func,(ppyobj_type(None),int64(1),ppyobj_type(None))),stack[stack_ptr])
          stack_ptr+=1
        elif ins.opname=='MAKE_FUNCTION':
          func_name = builder.load(stack[stack_ptr-1])
