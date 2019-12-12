@@ -45,4 +45,6 @@ print(1 > 2)
 print(a is None)
 
 def aaa(a,b=None,c=1):
-   pass
+   return a + b + c
+
+print(aaa(1.1,2.2,3.3))

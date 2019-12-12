@@ -489,9 +489,15 @@ for c in codes:
       builder.store(ir.Constant(ppyobj_type,None),s)
       stack.append(s)
    local = []
+   if c.co_argcount:
+       args = func.args[0]
+   nargs = func.args[1]  #TODO:
    for s in range(c.co_nlocals):
       l = builder.alloca(ppyobj_type,1)
-      builder.store(ir.Constant(ppyobj_type,None),l)
+      if s < c.co_argcount:
+         builder.store(builder.load(builder.gep(args,(int32(s),))),l)
+      else:
+         builder.store(ir.Constant(ppyobj_type,None),l)
       local.append(l)
 
    name = []
@@ -527,8 +533,6 @@ for c in codes:
    ins_idx=0
    branch_stack = {}
 
-   if c.co_argcount:
-       builder.store(builder.load(func.args[0]),local[0])
    for ins in dis.get_instructions(c):
        print(ins)
        a,block_idx,block,builder = blocks[bisect.bisect_right(ins_idxs,ins_idx)-1]
@@ -538,7 +542,7 @@ for c in codes:
             "line":  ins.starts_line,
             "scope": di_func,
             })
-       #debug(builder,"ins " + str(ins.offset))
+       debug(builder,"ins " + str(ins.offset))
        if ins.offset in branch_stack:
           stack_ptr = branch_stack[ins.offset]
        save_stack_ptr = stack_ptr
@@ -613,7 +617,7 @@ for c in codes:
          target = builder.load(builder.gep(code,(int32(0),int32(1))))
          #debug(builder,"deref " + str(ins.offset))
 
-         if ins.arg==1:
+         if ins.arg:
             builder.store(builder.call(target,(args,int64(ins.arg),ppyobj_type(None))),stack[stack_ptr])
          else:
             builder.store(builder.call(target,(ppyobj_type(None),int64(1),ppyobj_type(None))),stack[stack_ptr])
