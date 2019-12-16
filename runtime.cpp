@@ -161,9 +161,9 @@ PyObject_t* builtin_new(PyObject_t **v1, uint64_t alen, PyObject_t *v2){
 }
 
 __attribute__((always_inline)) PyObject_t* binop(PyObject_t *v1, PyObject_t *v2, uint32_t slot1, uint32_t slot2){
-   printf("binop %p %p %d %d\n", v1, v2, slot1, slot2);
-   dump(v1);
-   dump(v2);
+   //printf("binop %p %p %d %d\n", v1, v2, slot1, slot2);
+   //dump(v1);
+   //dump(v2);
    PyObject_t *ret=0;
    if(v1->vtable->dispatch[slot1]){
       ret = v1->vtable->dispatch[slot1](&v1,2,v2);

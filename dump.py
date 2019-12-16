@@ -344,7 +344,7 @@ flags.add(module.add_metadata([int32(1), "wchar_size", int32(4)]))
 ############## Helper code
 
 def debug(builder, s, *args):
-  alist = [builder.gep(get_constant(s + "\n"),(int32(0),int32(2),int32(0)))]
+  alist = [builder.gep(get_constant(s + "\n","debug_" + s),(int32(0),int32(2),int32(0)))]
   builder.call(printf,alist)
 
 def pyslot(builder, o, slot):
@@ -359,36 +359,13 @@ def binary_op(builder,stack_ptr,op,reverse=True):
   stack_ptr-=1
 
   v = stack[stack_ptr]
-  builder.store(builder.call(binop,(v2,v1,int32(magic_methods.index(op)),int32(magic_methods.index("r" + op) if reverse else -1))),v)
-  stack_ptr+=1
-  return stack_ptr
-
-  slot1 = pyslot(builder,v1,op)
-  p1 = builder.icmp_unsigned("!=",slot1,fnty.as_pointer()(None))
-  if reverse:
-     slot2 = pyslot(builder,v2,op)
-     p2 = builder.icmp_unsigned("!=",slot2,fnty.as_pointer()(None))
+  args = (v2,v1,int32(magic_methods.index(op)),int32(magic_methods.index("r" + op) if reverse else -1))
+  if len(except_stack):
+     newblock,builder,rval = invoke(binop,builder,target,args)
+     replace_block(ins,block_idx,newblock,builder)
+     builder.store(rval,stack[stack_ptr])
   else:
-     p2 = int1(0)
-
-  v = stack[stack_ptr]
-                  
-  b1 = func.append_basic_block(name="block" + str(block_idx) + "_" + str(ins_idx) + "b1")
-  b2 = func.append_basic_block(name="block" + str(block_idx) + "_" + str(ins_idx) + "b2")
-  c = func.append_basic_block(name="block" + str(block_idx) + "_" + str(ins_idx) + "c")
-
-  builder.cbranch(p1,b1,b2)
-
-  builder = ir.IRBuilder(b1)
-  builder.store(builder.call(slot1,(v1,v2)),v)
-  builder.branch(c)
-
-  builder = ir.IRBuilder(b2)
-  builder.store(ir.Constant(ppyobj_type,None),v)
-  builder.branch(c)
-
-  builder =  ir.IRBuilder(c)
-  blocks[block_idx] = (a,block_idx,c,builder)
+     builder.store(builder.call(binop,args),v)
   stack_ptr+=1
   return stack_ptr
 
@@ -405,15 +382,15 @@ def get_lpad(func):
 
    lbuilder.call(begin_catch,[])
    lbuilder.call(end_catch,[])
-   lbuilder.call(resume,[lbuilder.extract_value(lp, 0)])
-   lbuilder.resume(lp)
-   pad_map[except_stack[-1]] = lpad
-   return lpad
+   #lbuilder.call(resume,[lbuilder.extract_value(lp, 0)])
+   #lbuilder.resume(lp)
+   pad_map[except_stack[-1]] = (lpad,lbuilder)
+   return (lpad,lbuilder)
 
 def invoke(func,builder,target,args):
    global block_num
 
-   lpad = get_lpad(func)
+   lpad = get_lpad(func)[0]
    newblock = func.append_basic_block(name="block" + str(block_num+1))
    blocks_by_ofs[ins.offset] = newblock
    block_num += 1
@@ -443,7 +420,7 @@ noimp.initializer = pynoimp_type([[vtable_map['NotImplemented']]])
 
 
 ############## This function creates a global variables decleration for any compile time constants
-def get_constant(con):
+def get_constant(con,name=""):
    const_idx = len(const_map)
    tup = (type(con),con)
    if tup in const_map:
@@ -467,7 +444,7 @@ def get_constant(con):
       g.initializer = pyfloat_type([[vtable_map['float']],ir.Constant(dbl,con)])
    elif isinstance(con,str):
       t,p = make_str_type(len(con)+1)
-      g = ir.GlobalVariable(module,t,"global_" + str(const_idx))
+      g = ir.GlobalVariable(module,t,"global_" + str(const_idx) + name)
       const_map[tup] = g
       g.initializer = t([[vtable_map['str']],int64(len(con)+1),ir.Constant(ir.ArrayType(char,len(con)+1),bytearray(con + "\0",'utf8'))])
    elif isinstance(con, types.CodeType):
@@ -513,6 +490,12 @@ di_func_type = module.add_debug_info("DISubroutineType", {
         # None as `null`
         "types":           module.add_metadata([None]),
      })
+
+
+def replace_block(ins,block_idx,newblock,builder):
+   blocks_by_ofs[ins.offset] = newblock
+   blocks[block_idx][2] = newblock
+   blocks[block_idx][3] = builder                    
 
 
 ############## Emit llvm for each code section
@@ -593,12 +576,17 @@ for c in codes:
             "line":  ins.starts_line,
             "scope": di_func,
             })
-       debug(builder,"ins " + str(ins.offset))
        if ins.offset in branch_stack:
           stack_ptr = branch_stack[ins.offset]
 
        if ins.offset in except_stack: #This is a catch block
-          pass
+          assert(ins.offset == except_stack[-1]) #assumption not sure if true
+          func.blocks.remove(block)
+          newblock,builder = get_lpad(except_stack[-1])
+          replace_block(ins,block_idx,newblock,builder)
+          stack_ptr += 3
+
+       #debug(builder,"ins " + str(ins.offset))
 
        save_stack_ptr = stack_ptr
        if ins.opname=='LOAD_CONST':
@@ -677,10 +665,8 @@ for c in codes:
 
          if len(except_stack):
             newblock,builder,rval = invoke(func,builder,target,(args,int64(ins.arg),ppyobj_type(None)))
-            blocks_by_ofs[ins.offset] = newblock
+            replace_block(ins,block_idx,newblock,builder)
             builder.store(rval,stack[stack_ptr])
-            blocks[block_idx][2] = newblock
-            blocks[block_idx][3] = builder
          else:
             builder.store(builder.call(target,(args,int64(ins.arg),ppyobj_type(None))),stack[stack_ptr])
 
@@ -798,13 +784,14 @@ for c in codes:
        elif ins.opname=='POP_BLOCK':
           pass
        elif ins.opname=='POP_EXCEPT':
-          stack_ptr-=3
+          except_stack = except_stack[:-1]
           pass       
        else:
          assert(False)
        if (not dis.stack_effect(ins.opcode,ins.arg) == stack_ptr - save_stack_ptr and 
               ins.opname!='SETUP_FINALLY' and 
               ins.opname!='SETUP_EXCEPT' and
+              ins.opname!='POP_EXCEPT' and
               ins.opname!='END_FINALLY'):
           print(dis.stack_effect(ins.opcode,ins.arg), stack_ptr - save_stack_ptr)
           assert(False)
