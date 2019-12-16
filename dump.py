@@ -113,7 +113,7 @@ else:
 
 ############## Simple type decl stuff
 module = ir.Module(name=__file__)
-module.triple = "x86_64-unknown-linux-gnu"
+module.triple = "x86_64-pc-linux-gnu"
 td = llvm.create_target_data("e-m:e-i64:64-f80:128-n8:16:32:64-S128")
 int1 = ir.IntType(1)
 int8 = ir.IntType(8)
@@ -215,6 +215,9 @@ pylist_type = ir.global_context.get_identified_type("PyList")
 pylist_type.set_body(pyobj_type,int64,int64,pppyobj_type)
 ppylist_type = pylist_type.as_pointer()
 
+tp_pers = ir.FunctionType(int32, (), var_arg=True)
+pers = ir.Function(module, tp_pers, '__gxx_personality_v0')
+
 i=0
 
 #Add all the members to the various vtables
@@ -272,7 +275,16 @@ builtin_print = ir.Function(module, fnty, name="builtin_print")
 builtin_buildclass = ir.Function(module, fnty, name="builtin_buildclass")
 
 builtin_repr = ir.Function(module, fnty, name="builtin_repr")
+builtin_repr.attributes.add("uwtable")
+
 builtin_str = ir.Function(module, fnty, name="builtin_str")
+builtin_str.attributes.add("uwtable")
+
+begin_catch_type = ir.FunctionType(ir.VoidType(), [])
+begin_catch = ir.Function(module, begin_catch_type, "__cxa_begin_catch")
+end_catch = ir.Function(module, begin_catch_type, "__cxa_end_catch")
+resume_type = ir.FunctionType(ir.VoidType(), [int8.as_pointer()])
+resume = ir.Function(module, resume_type, "_Unwind_Resume")
 
 name_to_slots = ["repr","str"]
 for name in name_to_slots:
@@ -291,6 +303,7 @@ for name in name_to_slots:
 builtin_print_wrap = ir.Function(module, fnty, name="builtin_print_wrap")
 #builtin_print_wrap.attributes.add("noalias")
 builtin_print_wrap.attributes.add("noinline")
+builtin_print_wrap.attributes.add("uwtable")
 super(ir.values.AttributeSet,builtin_print_wrap.args[0].attributes).add("readonly")
 super(ir.values.AttributeSet,builtin_print_wrap.args[0].attributes).add("nocapture")
 super(ir.values.AttributeSet,builtin_print_wrap.args[2].attributes).add("readonly")
@@ -302,9 +315,11 @@ builder.ret(builder.call(builtin_print,builtin_print_wrap.args))
 
 binop_type = ir.FunctionType(ppyobj_type, (ppyobj_type, ppyobj_type, int32, int32))
 binop = ir.Function(module, binop_type, name="binop")
+binop.attributes.add("uwtable")
 
 truth_type = ir.FunctionType(int1, (ppyobj_type,))
 truth = ir.Function(module, truth_type, name="truth")
+truth.attributes.add("uwtable")
 
 di_file = module.add_debug_info("DIFile", {
     "filename":        "test.py",
@@ -377,6 +392,36 @@ def binary_op(builder,stack_ptr,op,reverse=True):
   stack_ptr+=1
   return stack_ptr
 
+pad_map = {}
+def get_lpad(func):
+   global pad_map, block_num
+   if except_stack[-1] in pad_map:
+     return pad_map[except_stack[-1]]
+   lpad = func.append_basic_block(name="lpad" + str(block_num+1))
+   block_num +=1 
+   lbuilder = ir.IRBuilder(lpad) 
+   lp = lbuilder.landingpad(ir.LiteralStructType([int8.as_pointer(),int32]), 'lp')
+   lp.add_clause(ir.CatchClause(int8.as_pointer()(None)))
+
+   lbuilder.call(begin_catch,[])
+   lbuilder.call(end_catch,[])
+   lbuilder.call(resume,[lbuilder.extract_value(lp, 0)])
+   lbuilder.resume(lp)
+   pad_map[except_stack[-1]] = lpad
+   return lpad
+
+def invoke(func,builder,target,args):
+   global block_num
+
+   lpad = get_lpad(func)
+   newblock = func.append_basic_block(name="block" + str(block_num+1))
+   blocks_by_ofs[ins.offset] = newblock
+   block_num += 1
+   rval = builder.invoke(target, args, newblock, lpad)
+   builder = ir.IRBuilder(newblock)
+   return newblock,builder,rval
+
+
 ############## Enumerate all function definitions
 i=0
 codes.reverse()
@@ -384,7 +429,11 @@ func_map = {}
 for c in codes:
    print("*************")
    func = ir.Function(module, fnty, name="code_blob_" + str(i))
+   func.attributes.personality = pers
    func.attributes.add("alwaysinline")
+   func.attributes.add("uwtable")
+
+   #personality i8* bitcast (i32 (...)* @__gxx_personality_v0 to i8*)
    func_map[c] = func
    i+=1
 
@@ -483,6 +532,7 @@ for c in codes:
 
    block = func.append_basic_block(name="entry")
    builder = ir.IRBuilder(block) 
+
    stack = []
    for s in range(c.co_stacksize):
       s = builder.alloca(ppyobj_type,1)
@@ -512,7 +562,7 @@ for c in codes:
          builder.store(ir.Constant(ppyobj_type,None),l)
       name.append(l)
 
-   blocks = [(0,0,block,builder)]
+   blocks = [[0,0,block,builder]]
    blocks_by_ofs = {0: block}
    block_num=0
    ins_idx=0
@@ -520,11 +570,11 @@ for c in codes:
    for ins in dis.get_instructions(c):
       if ins.is_jump_target or nxt:
         b = func.append_basic_block(name="block" + str(block_num+1))
-        blocks.append((ins_idx,block_num+1,b,ir.IRBuilder(b)))
+        blocks.append([ins_idx,block_num+1,b,ir.IRBuilder(b)])
         blocks_by_ofs[ins.offset] = b
         block_num += 1
         nxt=False
-      if ins.opname=='POP_JUMP_IF_FALSE' or ins.opname=='POP_JUMP_IF_TRUE':
+      if ins.opname=='POP_JUMP_IF_FALSE' or ins.opname=='POP_JUMP_IF_TRUE' or ins.opname=='SETUP_EXCEPT' or ins.opname=='JUMP_FORWARD':
         nxt=True
       ins_idx +=1
 
@@ -532,6 +582,7 @@ for c in codes:
    stack_ptr = 0
    ins_idx=0
    branch_stack = {}
+   except_stack = []
 
    for ins in dis.get_instructions(c):
        print(ins)
@@ -545,6 +596,10 @@ for c in codes:
        debug(builder,"ins " + str(ins.offset))
        if ins.offset in branch_stack:
           stack_ptr = branch_stack[ins.offset]
+
+       if ins.offset in except_stack: #This is a catch block
+          pass
+
        save_stack_ptr = stack_ptr
        if ins.opname=='LOAD_CONST':
          v = stack[stack_ptr]
@@ -611,16 +666,24 @@ for c in codes:
             stack_ptr-=1
          #debug(builder,"post store " + str(ins.offset))
 
-         func = builder.bitcast(builder.load(stack[stack_ptr-1]),ppyfunc_type)
+         cfunc = builder.bitcast(builder.load(stack[stack_ptr-1]),ppyfunc_type)
          stack_ptr-=1
-         code = builder.load(builder.gep(func,(int32(0),int32(1))))
+         code = builder.load(builder.gep(cfunc,(int32(0),int32(1))))
          target = builder.load(builder.gep(code,(int32(0),int32(1))))
          #debug(builder,"deref " + str(ins.offset))
 
-         if ins.arg:
-            builder.store(builder.call(target,(args,int64(ins.arg),ppyobj_type(None))),stack[stack_ptr])
+         if not ins.arg:
+            args = ppyobj_type(None)
+
+         if len(except_stack):
+            newblock,builder,rval = invoke(func,builder,target,(args,int64(ins.arg),ppyobj_type(None)))
+            blocks_by_ofs[ins.offset] = newblock
+            builder.store(rval,stack[stack_ptr])
+            blocks[block_idx][2] = newblock
+            blocks[block_idx][3] = builder
          else:
-            builder.store(builder.call(target,(ppyobj_type(None),int64(1),ppyobj_type(None))),stack[stack_ptr])
+            builder.store(builder.call(target,(args,int64(ins.arg),ppyobj_type(None))),stack[stack_ptr])
+
          stack_ptr+=1
          builder.call(stackrestore,[savestack])
 
@@ -712,6 +775,7 @@ for c in codes:
          stack_ptr = binary_op(builder,stack_ptr,"floordiv")
        elif ins.opname=='BINARY_SUBSCR':
          stack_ptr = binary_op(builder,stack_ptr,"getitem",False)
+
        elif ins.opname=='COMPARE_OP':
          if ins.argval == "is":
            v1 = builder.load(stack[stack_ptr-1])
@@ -723,14 +787,31 @@ for c in codes:
            stack_ptr+=1
          else:
            opmap = { '>' : 'gt', '<' : 'lt', '>=' : 'ge', "<=" : 'le' }
-           stack_ptr = binary_op(builder,stack_ptr,opmap[ins.argval],False)       
+           stack_ptr = binary_op(builder,stack_ptr,opmap[ins.argval],False)
+       elif ins.opname=='SETUP_FINALLY':
+          pass       
+       elif ins.opname=='END_FINALLY':
+          pass       
+       elif ins.opname=='SETUP_EXCEPT':
+          except_stack.append(ins.argval)
+          branch_stack[ins.argval] = stack_ptr
+       elif ins.opname=='POP_BLOCK':
+          pass
+       elif ins.opname=='POP_EXCEPT':
+          stack_ptr-=3
+          pass       
        else:
          assert(False)
-       assert(dis.stack_effect(ins.opcode,ins.arg) == stack_ptr - save_stack_ptr)
+       if (not dis.stack_effect(ins.opcode,ins.arg) == stack_ptr - save_stack_ptr and 
+              ins.opname!='SETUP_FINALLY' and 
+              ins.opname!='SETUP_EXCEPT' and
+              ins.opname!='END_FINALLY'):
+          print(dis.stack_effect(ins.opcode,ins.arg), stack_ptr - save_stack_ptr)
+          assert(False)
        if did_jmp == False and block_idx+1 < len(blocks) and ins_idx+1==blocks[block_idx+1][0]:
          builder.branch(blocks[block_idx+1][2])
        ins_idx+=1
    i+=1
 
-open("foo.il", "w+").write(str(module))
+open("foo.ll", "w+").write(str(module))
 

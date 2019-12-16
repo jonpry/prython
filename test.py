@@ -48,3 +48,11 @@ def aaa(a,b=None,c=1):
    return a + b + c
 
 print(aaa(1.1,2.2,3.3))
+
+try:
+   print(aaa(1,2,"dsads"))
+
+except:
+   a = 1
+
+

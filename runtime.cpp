@@ -5,6 +5,7 @@
 #include <string.h>
 #include <math.h>
 #include <assert.h>
+#include <exception>
 
 extern "C" {
 
@@ -92,7 +93,17 @@ const char *rtti_strings[] = {"int", "float", "tuple", "str", "code", "func", "c
 
 #undef malloc
 void* malloc(size_t) __attribute__((returns_nonnull));
+void* __cxa_allocate_exception(size_t thrown_size);
+void __cxa_throw(void* thrown_exception,
+                 struct type_info *tinfo,
+                 void (*dest)(void*));
 
+
+#define THROW() \
+    { \
+      void* exc = __cxa_allocate_exception(16); \
+      __cxa_throw(exc,0,0); \
+    }
 
 __attribute__((noinline)) void dump(const PyObject_t *v){
    if(!v){
@@ -165,6 +176,9 @@ __attribute__((always_inline)) PyObject_t* binop(PyObject_t *v1, PyObject_t *v2,
          return ret;
    }
    printf("Could not perform operator\n");
+
+   THROW();
+
    return (PyObject_t*)&global_noimp;
 }
 
