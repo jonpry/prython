@@ -98,11 +98,10 @@ void __cxa_throw(void* thrown_exception,
                  struct type_info *tinfo,
                  void (*dest)(void*));
 
-
+//      void* exc = __cxa_allocate_exception(16); 
 #define THROW() \
     { \
-      void* exc = __cxa_allocate_exception(16); \
-      __cxa_throw(exc,0,0); \
+      __cxa_throw((void*)13,0,0); \
     }
 
 __attribute__((noinline)) void dump(const PyObject_t *v){

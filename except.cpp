@@ -27,11 +27,13 @@ char exception_buff[EXCEPTION_BUFF_SIZE];
 
 extern "C" {
 
-void* __cxa_allocate_exception(size_t thrown_size)
-{
-    if (thrown_size > EXCEPTION_BUFF_SIZE) printf("Exception too big");
+#if 0
+void* __cxa_allocate_exception(size_t thrown_size) {
+    if (thrown_size > EXCEPTION_BUFF_SIZE) 
+       printf("Exception too big");
     return &exception_buff;
 }
+#endif
 
 void __cxa_free_exception(void *thrown_exception);
 
@@ -59,20 +61,18 @@ struct __cxa_exception {
 	_Unwind_Exception	unwindHeader;
 };
 
-_Unwind_Exception	unwindHeader = {};
+struct __cxa_exception header = {};
 
 void __cxa_throw(void* thrown_exception,
                  std::type_info *tinfo,
                  void (*dest)(void*)) 
 {
-    __cxa_exception *header = ((__cxa_exception *) thrown_exception - 1);
-
     // We need to save the type info in the exception header _Unwind_ will
     // receive, otherwise we won't be able to know it when unwinding
-//    header->exceptionType = tinfo;
+    header.exceptionType = tinfo;
 
 
-    uint32_t res = _Unwind_RaiseException(&unwindHeader);
+    uint32_t res = _Unwind_RaiseException(&header.unwindHeader);
 
     // __cxa_throw never returns
     printf("no one handled __cxa_throw, terminate! %u\n", res);

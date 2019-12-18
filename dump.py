@@ -377,7 +377,7 @@ def get_lpad(func):
    lpad = func.append_basic_block(name="lpad" + str(block_num+1))
    block_num +=1 
    lbuilder = ir.IRBuilder(lpad) 
-   lp = lbuilder.landingpad(ir.LiteralStructType([int8.as_pointer(),int32]), 'lp')
+   lp = lbuilder.landingpad(ir.LiteralStructType([int8.as_pointer(),int64]), 'lp')
    lp.add_clause(ir.CatchClause(int8.as_pointer()(None)))
 
    lbuilder.call(begin_catch,[])
@@ -566,10 +566,19 @@ for c in codes:
    ins_idx=0
    branch_stack = {}
    except_stack = []
+   unreachable = False
 
    for ins in dis.get_instructions(c):
        print(ins)
        a,block_idx,block,builder = blocks[bisect.bisect_right(ins_idxs,ins_idx)-1]
+
+       if unreachable and not ins.is_jump_target:
+          ins_idx+=1
+          func.blocks.remove(block)
+          print("Unreachable")
+          continue
+       unreachable=False
+
        did_jmp=False  
        if ins.starts_line:
           builder.debug_metadata = builder.module.add_debug_info("DILocation", {
@@ -724,6 +733,7 @@ for c in codes:
          builder.branch(blocks_by_ofs[ins.argval])
          branch_stack[ins.argval] = stack_ptr
          did_jmp=True
+         unreachable=True
        elif ins.opname=='LOAD_METHOD': #TODO
          v = stack[stack_ptr]
          builder.store(ir.Constant(ppyobj_type,None),v)
@@ -761,9 +771,19 @@ for c in codes:
          stack_ptr = binary_op(builder,stack_ptr,"floordiv")
        elif ins.opname=='BINARY_SUBSCR':
          stack_ptr = binary_op(builder,stack_ptr,"getitem",False)
-
+       elif ins.opname=="NOP":
+            pass
+       elif ins.opname=="EXTENDED_ARG":
+            pass
+       elif ins.opname=="DUP_TOP":
+           v1 = builder.load(stack[stack_ptr-1])
+           builder.store(v1,stack[stack_ptr])
+           stack_ptr+=1
        elif ins.opname=='COMPARE_OP':
-         if ins.argval == "is":
+         if ins.argval == "exception match": #TODO:
+           v1 = builder.load(stack[stack_ptr-1])
+           stack_ptr-=1
+         elif ins.argval == "is":
            v1 = builder.load(stack[stack_ptr-1])
            stack_ptr-=1
            v2 = builder.load(stack[stack_ptr-1])
@@ -788,11 +808,13 @@ for c in codes:
           pass       
        else:
          assert(False)
-       if (not dis.stack_effect(ins.opcode,ins.arg) == stack_ptr - save_stack_ptr and 
-              ins.opname!='SETUP_FINALLY' and 
+
+       if (   ins.opname!='SETUP_FINALLY' and 
               ins.opname!='SETUP_EXCEPT' and
               ins.opname!='POP_EXCEPT' and
-              ins.opname!='END_FINALLY'):
+              ins.opname!='END_FINALLY' and
+              ins.opname!='EXTENDED_ARG' and
+              not dis.stack_effect(ins.opcode,ins.arg) == stack_ptr - save_stack_ptr):
           print(dis.stack_effect(ins.opcode,ins.arg), stack_ptr - save_stack_ptr)
           assert(False)
        if did_jmp == False and block_idx+1 < len(blocks) and ins_idx+1==blocks[block_idx+1][0]:

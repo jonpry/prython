@@ -52,7 +52,13 @@ print(aaa(1.1,2.2,3.3))
 try:
    print(aaa(1,2,"dsads"))
 
+except FooException:
+   a = 1
+
 except:
    a = 1
+
+finally:
+   a = 4
 
 print(a)
