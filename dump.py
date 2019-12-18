@@ -164,6 +164,8 @@ magic_methods = ["float","str",
                  "await","aiter","anext","aenter","aexit",
                  ];
 
+const_map = {}
+
 ############## Types for integral python types
 vtable_type = ir.global_context.get_identified_type("struct.vtable_t")
 pvtable_type = vtable_type.as_pointer()
@@ -215,6 +217,9 @@ pylist_type = ir.global_context.get_identified_type("PyList")
 pylist_type.set_body(pyobj_type,int64,int64,pppyobj_type)
 ppylist_type = pylist_type.as_pointer()
 
+noimp = ir.GlobalVariable(module,pynoimp_type,"global_noimp")
+const_map[(type(noimp),noimp) ] = noimp
+
 tp_pers = ir.FunctionType(int32, (), var_arg=True)
 pers = ir.Function(module, tp_pers, '__gxx_personality_v0')
 
@@ -249,7 +254,7 @@ for t in integrals.keys():
    vtable_map[t] = g
    i+=1
 
-const_map = {}
+noimp.initializer = pynoimp_type([[vtable_map['NotImplemented']]])
 
 ############## These functions are implemented in C
 malloc_type = ir.FunctionType(int8.as_pointer(), (int64,))
@@ -413,11 +418,6 @@ for c in codes:
    #personality i8* bitcast (i32 (...)* @__gxx_personality_v0 to i8*)
    func_map[c] = func
    i+=1
-
-noimp = ir.GlobalVariable(module,pynoimp_type,"global_noimp")
-const_map[(type(noimp),noimp) ] = noimp
-noimp.initializer = pynoimp_type([[vtable_map['NotImplemented']]])
-
 
 ############## This function creates a global variables decleration for any compile time constants
 def get_constant(con,name=""):

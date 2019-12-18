@@ -58,6 +58,9 @@ except FooException:
 except:
    a = 1
 
+else:
+   a = 3
+
 finally:
    a = 4
 
