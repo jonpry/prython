@@ -17,11 +17,12 @@ __attribute__((always_inline)) void* my_malloc(size_t sz){
 
 
 class pyobj;
+class pyfunc;
 typedef struct pyobj* (*fnty)(struct pyobj **v1, uint64_t alen, struct pyobj *v2);
 
 typedef struct {
   uint64_t rtti;
-  fnty dispatch[101]; //TODO: this has to be right, hard to sync with dump.py
+  pyfunc *dispatch[101]; //TODO: this has to be right, hard to sync with dump.py
 } vtable_t;
 
 extern const vtable_t vtable_int, vtable_float, vtable_str, vtable_code, vtable_tuple, vtable_func, vtable_class, vtable_bool, vtable_NotImplemented;
@@ -146,7 +147,7 @@ __attribute__((noinline)) PyObject_t* builtin_print(PyObject_t ** pv1,
    //printf("Print entry %p %p %p %lu\n", pv1, *pv1, (*pv1)->vtable, (*pv1)->vtable->rtti);
    PyObject_t* v1 = *pv1;
    if(v1->vtable->rtti != STR_RTTI){
-      v1 = v1->vtable->dispatch[STR_SLOT](pv1,1,0);
+      v1 = v1->vtable->dispatch[STR_SLOT]->code->func(pv1,1,0);
    }
    printf("Print %p %p\n", v1, v2);
    dump(v1);
@@ -165,12 +166,12 @@ __attribute__((always_inline)) PyObject_t* binop(PyObject_t *v1, PyObject_t *v2,
    //dump(v2);
    PyObject_t *ret=0;
    if(v1->vtable->dispatch[slot1]){
-      ret = v1->vtable->dispatch[slot1](&v1,2,v2);
+      ret = v1->vtable->dispatch[slot1]->code->func(&v1,2,v2);
       if(!ret || ret->vtable->rtti != NOIMP_RTTI)
          return ret;
    }
    if(v2->vtable->dispatch[slot2]){
-      ret = v2->vtable->dispatch[slot2](&v2,2,v1);
+      ret = v2->vtable->dispatch[slot2]->code->func(&v2,2,v1);
       if(!ret || ret->vtable->rtti != NOIMP_RTTI)
          return ret;
    }
@@ -222,7 +223,7 @@ __attribute__((always_inline)) PyObject_t* f(PyObject_t **v1, uint64_t alen, PyO
    double val=0; \
    if(v2->vtable->rtti != v.rtti) {\
       if(v2->vtable->dispatch[FLOAT_SLOT]){ \
-         PyFloat_t *temp = (PyFloat_t*)v2->vtable->dispatch[FLOAT_SLOT](&v2,alen,0); \
+         PyFloat_t *temp = (PyFloat_t*)v2->vtable->dispatch[FLOAT_SLOT]->code->func(&v2,alen,0); \
          val = temp->val; \
       }else \
          return &global_noimp; \
@@ -325,7 +326,7 @@ PyObject_t* join(PyObject_t *v1, PyObject_t *v2, char left, char right){
     PyStr_t *strs[t->sz];
     size_t total_sz=0;
     for(uint64_t i=0; i < t->sz; i++){
-       strs[i] = (PyStr_t*)t->objs[i]->vtable->dispatch[STR_SLOT](&t->objs[i],1,0);
+       strs[i] = (PyStr_t*)t->objs[i]->vtable->dispatch[STR_SLOT]->code->func(&t->objs[i],1,0);
        total_sz += strs[i]->sz;
     }
     uint64_t str_sz = total_sz + 2 + (t->sz - 1)*2;
@@ -356,7 +357,7 @@ PyObject_t* list_str(PyObject_t **v1, uint64_t alen, PyObject_t *v2){
     PyStr_t *strs[t->sz];
     size_t total_sz=0;
     for(uint64_t i=0; i < t->sz; i++){
-       strs[i] = (PyStr_t*)t->objs[i]->vtable->dispatch[STR_SLOT](&t->objs[i],1,0);
+       strs[i] = (PyStr_t*)t->objs[i]->vtable->dispatch[STR_SLOT]->code->func(&t->objs[i],1,0);
        total_sz += strs[i]->sz;
     }
     uint64_t str_sz = total_sz + 2 + (t->sz - 1)*2;

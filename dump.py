@@ -175,8 +175,11 @@ pyobj_type.set_body(pvtable_type)
 ppyobj_type = pyobj_type.as_pointer()
 pppyobj_type = ppyobj_type.as_pointer()
 
+pyfunc_type = ir.global_context.get_identified_type("PyFunc")
+ppyfunc_type = pyfunc_type.as_pointer()
+
 fnty = ir.FunctionType(ppyobj_type, (pppyobj_type, int64, ppyobj_type))
-vlist = [ir.IntType(64),ir.ArrayType(fnty.as_pointer(),len(magic_methods))]
+vlist = [ir.IntType(64),ir.ArrayType(ppyfunc_type,len(magic_methods))]
 vtable_type.set_body(*vlist)
 
 pyint_type = ir.global_context.get_identified_type("PyInt")
@@ -193,9 +196,7 @@ ppycode_type = pycode_type.as_pointer()
 
 pystr_type, ppystr_type = make_str_type(0)
 
-pyfunc_type = ir.global_context.get_identified_type("PyFunc")
 pyfunc_type.set_body(pyobj_type, ppycode_type, ppystr_type, make_tuple_type(0)[1])
-ppyfunc_type = pyfunc_type.as_pointer()
 
 pyclass_type = ir.global_context.get_identified_type("PyClass")
 pyclass_type.set_body(pyfunc_type)
@@ -225,6 +226,63 @@ pers = ir.Function(module, tp_pers, '__gxx_personality_v0')
 
 i=0
 
+############## This function creates a global variables decleration for any compile time constants
+def get_constant(con,name=""):
+   const_idx = len(const_map)
+   tup = (type(con),con)
+   if tup in const_map:
+      return const_map[tup]
+
+   if con is None:
+      const_map[tup] = None
+      return None
+        
+   if type(con) == int:
+      g = ir.GlobalVariable(module,pyint_type,"global_" + str(const_idx))
+      const_map[tup] = g
+      g.initializer = pyint_type([[vtable_map['int']],ir.Constant(int64,con)])
+   elif type(con) == bool:
+      g = ir.GlobalVariable(module,pybool_type,"global_" + str(con).lower())
+      const_map[tup] = g
+      g.initializer = pybool_type([[vtable_map['bool']],ir.Constant(int64,int(con))])
+   elif type(con) == float:
+      g = ir.GlobalVariable(module,pyfloat_type,"global_" + str(const_idx))
+      const_map[tup] = g
+      g.initializer = pyfloat_type([[vtable_map['float']],ir.Constant(dbl,con)])
+   elif isinstance(con,str):
+      t,p = make_str_type(len(con)+1)
+      g = ir.GlobalVariable(module,t,"global_" + str(const_idx) + name)
+      const_map[tup] = g
+      g.initializer = t([[vtable_map['str']],int64(len(con)+1),ir.Constant(ir.ArrayType(char,len(con)+1),bytearray(con + "\0",'utf8'))])
+   elif isinstance(con, types.CodeType):
+      g = ir.GlobalVariable(module,pycode_type,"global_" + str(const_idx))
+      const_map[tup] = g
+      g.initializer = pycode_type([[vtable_map['code']], func_map[con]])
+   elif isinstance(con, tuple):
+      t,p = make_tuple_type(len(con))
+      g = ir.GlobalVariable(module,t,"global_" + str(const_idx))
+      const_map[tup] = g
+      cons = []
+      for c in con:
+        c = get_constant(c)
+        cons.append(c.bitcast(ppyobj_type) if c else None)
+      g.initializer = t([[vtable_map['tuple']], int64(len(con)), ir.ArrayType(ppyobj_type,len(con))(cons)])    
+   elif isinstance(con, ir.Function):
+      c = ir.GlobalVariable(module,pycode_type,"global_" + str(const_idx))      
+      const_map[c] = c
+      c.global_constant = True
+      c.initializer = pycode_type([[vtable_map['code']],con])
+
+      g = ir.GlobalVariable(module,pyfunc_type,"global_" + str(const_idx+1))      
+      const_map[tup] = g
+      g.initializer = pyfunc_type([[vtable_map['func']],c,get_constant(con.name).bitcast(ppystr_type),make_tuple_type(0)[1](None)])
+   else:
+      print(type(con))
+      assert(False)   
+   g.global_constant = True
+   return g
+
+
 #Add all the members to the various vtables
 integrals = {"int" : { "mul" , "add", "xor", "or", "and", "radd", "mod", "floordiv", "float", "str", "gt", "lt", "le", "ge", "ne", "eq" }, 
              "float" : { "mul", "add", "sub", "pow", "radd", "rmul", "rsub", "rpow", "mod", "truediv", "rmod", "rtruediv",
@@ -241,17 +299,21 @@ integrals = {"int" : { "mul" , "add", "xor", "or", "and", "radd", "mod", "floord
              "dict" : {}}
 
 vtable_map = {}
+
 for t in integrals.keys():
    g = ir.GlobalVariable(module,vtable_type,"vtable_" + t)
+   vtable_map[t] = g
+
+for t in integrals.keys():
+   g = vtable_map[t]
    vinit = [int64(i),[]]
    for m in magic_methods:
       if m in integrals[t]:
-        vinit[1].append(ir.Function(module, fnty, name=t + "_" + m))
+        vinit[1].append(get_constant(ir.Function(module, fnty, name=t + "_" + m)))
       else:
-        vinit[1].append(ir.Constant(fnty.as_pointer(),None))
+        vinit[1].append(ppyfunc_type(None))
    g.initializer = vtable_type(vinit)
    g.global_constant = True
-   vtable_map[t] = g
    i+=1
 
 noimp.initializer = pynoimp_type([[vtable_map['NotImplemented']]])
@@ -303,7 +365,13 @@ for name in name_to_slots:
    print(v)
    p = builder.load(builder.gep(v,(int32(0),int32(1),int32(magic_methods.index(name)))))
    print(p)
-   builder.ret(builder.call(p,func.args))
+   p = builder.bitcast(p,ppyfunc_type)
+   print(p)
+   c = builder.load(builder.gep(p,(int32(0),int32(1))))
+   print(c)
+   c = builder.load(builder.gep(c,(int32(0),int32(1))))
+   print(c)
+   builder.ret(builder.call(c,func.args))
 
 builtin_print_wrap = ir.Function(module, fnty, name="builtin_print_wrap")
 #builtin_print_wrap.attributes.add("noalias")
@@ -418,62 +486,6 @@ for c in codes:
    #personality i8* bitcast (i32 (...)* @__gxx_personality_v0 to i8*)
    func_map[c] = func
    i+=1
-
-############## This function creates a global variables decleration for any compile time constants
-def get_constant(con,name=""):
-   const_idx = len(const_map)
-   tup = (type(con),con)
-   if tup in const_map:
-      return const_map[tup]
-
-   if con is None:
-      const_map[tup] = None
-      return None
-        
-   if type(con) == int:
-      g = ir.GlobalVariable(module,pyint_type,"global_" + str(const_idx))
-      const_map[tup] = g
-      g.initializer = pyint_type([[vtable_map['int']],ir.Constant(int64,con)])
-   elif type(con) == bool:
-      g = ir.GlobalVariable(module,pybool_type,"global_" + str(con).lower())
-      const_map[tup] = g
-      g.initializer = pybool_type([[vtable_map['bool']],ir.Constant(int64,int(con))])
-   elif type(con) == float:
-      g = ir.GlobalVariable(module,pyfloat_type,"global_" + str(const_idx))
-      const_map[tup] = g
-      g.initializer = pyfloat_type([[vtable_map['float']],ir.Constant(dbl,con)])
-   elif isinstance(con,str):
-      t,p = make_str_type(len(con)+1)
-      g = ir.GlobalVariable(module,t,"global_" + str(const_idx) + name)
-      const_map[tup] = g
-      g.initializer = t([[vtable_map['str']],int64(len(con)+1),ir.Constant(ir.ArrayType(char,len(con)+1),bytearray(con + "\0",'utf8'))])
-   elif isinstance(con, types.CodeType):
-      g = ir.GlobalVariable(module,pycode_type,"global_" + str(const_idx))
-      const_map[tup] = g
-      g.initializer = pycode_type([[vtable_map['code']], func_map[con]])
-   elif isinstance(con, tuple):
-      t,p = make_tuple_type(len(con))
-      g = ir.GlobalVariable(module,t,"global_" + str(const_idx))
-      const_map[tup] = g
-      cons = []
-      for c in con:
-        c = get_constant(c)
-        cons.append(c.bitcast(ppyobj_type) if c else None)
-      g.initializer = t([[vtable_map['tuple']], int64(len(con)), ir.ArrayType(ppyobj_type,len(con))(cons)])    
-   elif isinstance(con, ir.Function):
-      c = ir.GlobalVariable(module,pycode_type,"global_" + str(const_idx))      
-      const_map[c] = c
-      c.global_constant = True
-      c.initializer = pycode_type([[vtable_map['code']],con])
-
-      g = ir.GlobalVariable(module,pyfunc_type,"global_" + str(const_idx+1))      
-      const_map[tup] = g
-      g.initializer = pyfunc_type([[vtable_map['func']],c,get_constant(con.name).bitcast(ppystr_type),make_tuple_type(0)[1](None)])
-   else:
-      print(type(con))
-      assert(False)   
-   g.global_constant = True
-   return g
 
 get_constant(False)
 get_constant(True)
