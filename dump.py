@@ -566,6 +566,7 @@ for c in codes:
    ins_idx=0
    branch_stack = {}
    except_stack = []
+   finally_stack = []
    unreachable = False
 
    for ins in dis.get_instructions(c):
@@ -795,19 +796,19 @@ for c in codes:
            opmap = { '>' : 'gt', '<' : 'lt', '>=' : 'ge', "<=" : 'le' }
            stack_ptr = binary_op(builder,stack_ptr,opmap[ins.argval],False)
        elif ins.opname=='SETUP_FINALLY':
-          pass       
+           finally_stack.append(ins.argval)       
        elif ins.opname=='END_FINALLY':
-          pass       
+           finally_stack = finally_stack[:-1]
        elif ins.opname=='SETUP_EXCEPT':
-          except_stack.append(ins.argval)
-          branch_stack[ins.argval] = stack_ptr
+           except_stack.append(ins.argval)
+           branch_stack[ins.argval] = stack_ptr
        elif ins.opname=='POP_BLOCK':
-          pass
+           pass
        elif ins.opname=='POP_EXCEPT':
-          except_stack = except_stack[:-1]
-          pass       
+           except_stack = except_stack[:-1]
+           pass       
        else:
-         assert(False)
+           assert(False)
 
        if (   ins.opname!='SETUP_FINALLY' and 
               ins.opname!='SETUP_EXCEPT' and
