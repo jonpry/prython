@@ -125,11 +125,11 @@ dbl = ir.DoubleType()
 
 ############## Strings of different length require different types for static initializers
 str_types = {}
-def make_str_type(l):
+def make_str_type(l,name=None):
    global int64,char,str_types,pyobj_type
    if l in str_types:
       return str_types[l]
-   t = ir.global_context.get_identified_type("PyStr" + str(l))
+   t = ir.global_context.get_identified_type(name if name else ("PyStr" + str(l)))
    t.set_body(pyobj_type, int64, ir.ArrayType(char,l))
    p = t.as_pointer()
    str_types[l] = (t,p)
@@ -137,11 +137,11 @@ def make_str_type(l):
 
 ############## Tuples of different length require different types for static initializers
 tuple_types = {}
-def make_tuple_type(l):
+def make_tuple_type(l,name=None):
    global int64,char,tuple_types,pyobj_type,ppyobj_type
    if l in tuple_types:
       return tuple_types[l]
-   t = ir.global_context.get_identified_type("PyTuple" + str(l))
+   t = ir.global_context.get_identified_type(name if name else ("PyTuple" + str(l)))
    t.set_body(pyobj_type, int64, ir.ArrayType(ppyobj_type,l))
    p = t.as_pointer()
    tuple_types[l] = (t,p)
@@ -175,7 +175,7 @@ pyobj_type.set_body(pvtable_type)
 ppyobj_type = pyobj_type.as_pointer()
 pppyobj_type = ppyobj_type.as_pointer()
 
-pyfunc_type = ir.global_context.get_identified_type("PyFunc")
+pyfunc_type = ir.global_context.get_identified_type("class.pyfunc")
 ppyfunc_type = pyfunc_type.as_pointer()
 
 fnty = ir.FunctionType(ppyobj_type, (pppyobj_type, int64, ppyobj_type))
@@ -190,13 +190,13 @@ pyfloat_type = ir.global_context.get_identified_type("PyFloat")
 pyfloat_type.set_body(pyobj_type, dbl)
 ppyfloat_type = pyfloat_type.as_pointer()
 
-pycode_type = ir.global_context.get_identified_type("PyCode")
+pycode_type = ir.global_context.get_identified_type("class.pycode")
 pycode_type.set_body(pyobj_type, fnty.as_pointer())
 ppycode_type = pycode_type.as_pointer()
 
-pystr_type, ppystr_type = make_str_type(0)
+pystr_type, ppystr_type = make_str_type(0,"class.pystr")
 
-pyfunc_type.set_body(pyobj_type, ppycode_type, ppystr_type, make_tuple_type(0)[1])
+pyfunc_type.set_body(pyobj_type, ppycode_type, ppystr_type, make_tuple_type(0,"class.pytuple")[1])
 
 pyclass_type = ir.global_context.get_identified_type("PyClass")
 pyclass_type.set_body(pyfunc_type)
@@ -284,7 +284,7 @@ def get_constant(con,name=""):
 
 
 #Add all the members to the various vtables
-integrals = {"int" : { "mul" , "add", "xor", "or", "and", "radd", "mod", "floordiv", "float", "str", "gt", "lt", "le", "ge", "ne", "eq" }, 
+integrals = {"int" : { "mul" , "add", "xor", "or", "and", "radd", "mod", "floordiv", "float", "str", "gt", "lt", "le", "ge", "ne", "eq", "neg" }, 
              "float" : { "mul", "add", "sub", "pow", "radd", "rmul", "rsub", "rpow", "mod", "truediv", "rmod", "rtruediv",
                          "floordiv", "rfloordiv", "str"},
              "tuple" : { "str", "getitem" }, 
@@ -335,9 +335,6 @@ printf = ir.Function(module, printf_type, name="printf")
 import_name_type = ir.FunctionType(ppyobj_type, (ppyobj_type, ppyobj_type, ppyobj_type))
 import_name = ir.Function(module, import_name_type, name="import_name")
 
-load_attr_type = ir.FunctionType(ppyobj_type, (ppyobj_type, ppyobj_type))
-load_attr = ir.Function(module, load_attr_type, name="load_attr")
-
 builtin_print = ir.Function(module, fnty, name="builtin_print")
 builtin_buildclass = ir.Function(module, fnty, name="builtin_buildclass")
 
@@ -346,6 +343,9 @@ builtin_repr.attributes.add("uwtable")
 
 builtin_str = ir.Function(module, fnty, name="builtin_str")
 builtin_str.attributes.add("uwtable")
+
+builtin_getattr = ir.Function(module, fnty, name="builtin_getattr")
+builtin_getattr.attributes.add("uwtable")
 
 begin_catch_type = ir.FunctionType(ir.VoidType(), [])
 begin_catch = ir.Function(module, begin_catch_type, "__cxa_begin_catch")
@@ -389,6 +389,11 @@ builder.ret(builder.call(builtin_print,builtin_print_wrap.args))
 binop_type = ir.FunctionType(ppyobj_type, (ppyobj_type, ppyobj_type, int32, int32))
 binop = ir.Function(module, binop_type, name="binop")
 binop.attributes.add("uwtable")
+
+
+unop_type = ir.FunctionType(ppyobj_type, (ppyobj_type, int32))
+unop = ir.Function(module, unop_type, name="unop")
+unop.attributes.add("uwtable")
 
 truth_type = ir.FunctionType(int1, (ppyobj_type,))
 truth = ir.Function(module, truth_type, name="truth")
@@ -439,6 +444,21 @@ def binary_op(builder,stack_ptr,op,reverse=True):
      builder.store(rval,stack[stack_ptr])
   else:
      builder.store(builder.call(binop,args),v)
+  stack_ptr+=1
+  return stack_ptr
+
+def unary_op(builder,stack_ptr,op):
+  v1 = builder.load(stack[stack_ptr-1])
+  stack_ptr-=1
+
+  v = stack[stack_ptr]
+  args = (v1,int32(magic_methods.index(op)))
+  if len(except_stack):
+     newblock,builder,rval = invoke(unop,builder,target,args)
+     replace_block(ins,block_idx,newblock,builder)
+     builder.store(rval,stack[stack_ptr])
+  else:
+     builder.store(builder.call(unop,args),v)
   stack_ptr+=1
   return stack_ptr
 
@@ -548,13 +568,14 @@ for c in codes:
    name = []
    for s in range(len(c.co_names)):
       l = builder.alloca(ppyobj_type,1)
-      if c.co_names[s] == "print":
-         builder.store(builder.bitcast(get_constant(builtin_print_wrap),ppyobj_type),l)
-      elif c.co_names[s] == "str":
-         builder.store(builder.bitcast(get_constant(builtin_str),ppyobj_type),l)
-      elif c.co_names[s] == "repr":
-         builder.store(builder.bitcast(get_constant(builtin_repr),ppyobj_type),l)
-         builder.store(ir.Constant(ppyobj_type,None),l)
+      if c.co_names[s] == 'print':
+          builder.store(builder.bitcast(get_constant(locals()['builtin_print_wrap']),ppyobj_type),l)
+      else:
+         builtin_names = ["str", "repr", "getattr", "setattr"]
+         for n in builtin_names:
+           if c.co_names[s] == n:
+              builder.store(builder.bitcast(get_constant(locals()['builtin_'  + n]),ppyobj_type),l)
+
       name.append(l)
 
    blocks = [[0,0,block,builder]]
@@ -729,8 +750,19 @@ for c in codes:
          stack_ptr-=1
          v2 = builder.bitcast(get_constant(ins.argval),ppyobj_type)
          v = stack[stack_ptr]
-         builder.store(builder.call(load_attr,(v1,v2)),v)
+
+         args = builder.alloca(ppyobj_type,2)
+         builder.store(v1,builder.gep(args,(int32(0),)))
+         builder.store(v2,builder.gep(args,(int32(1),)))
+
+         builder.store(builder.call(builtin_getattr,(args,int64(2),ppyobj_type(None))),v)
          stack_ptr+=1
+       elif ins.opname=='STORE_ATTR': #TODO:
+         v1 = builder.load(stack[stack_ptr-1])
+         stack_ptr-=1
+         v2 = builder.load(stack[stack_ptr-1])
+         stack_ptr-=1
+         v3 = builder.bitcast(get_constant(ins.argval),ppyobj_type)
        elif ins.opname=='LOAD_BUILD_CLASS': #TODO
          v = stack[stack_ptr]
          builder.store(builder.bitcast(get_constant(builtin_buildclass),ppyobj_type),v)
@@ -784,6 +816,12 @@ for c in codes:
          stack_ptr = binary_op(builder,stack_ptr,"floordiv")
        elif ins.opname=='BINARY_SUBSCR':
          stack_ptr = binary_op(builder,stack_ptr,"getitem",False)
+       elif ins.opname=='UNARY_NEGATIVE':
+         stack_ptr = unary_op(builder,stack_ptr,"neg")
+       elif ins.opname=='UNARY_POSITIVE':
+         stack_ptr = unary_op(builder,stack_ptr,"pos")
+       elif ins.opname=='UNARY_INVERT':
+         stack_ptr = unary_op(builder,stack_ptr,"invert")
        elif ins.opname=="NOP":
             pass
        elif ins.opname=="EXTENDED_ARG":

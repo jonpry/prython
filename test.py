@@ -64,4 +64,11 @@ else:
 finally:
    a = 4
 
-print(a)
+print(-a)
+
+a.__len__ = 2
+
+print(a.__len__)
+
+print(getattr(a,"__len__"))
+

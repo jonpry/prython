@@ -69,6 +69,7 @@ typedef class pyfunc : public pyobj {
 public:
   PyCode_t *code;
   PyStr_t *str;
+  PyTuple_t *dargs;
 } PyFunc_t;
 
 typedef class pybool : public pyobj {
@@ -134,11 +135,18 @@ PyObject_t* import_name(PyObject_t *v1, PyObject_t *v2, PyObject_t *v3){
    return 0;
 }
 
-PyObject_t* load_attr(PyObject_t *v1, PyObject_t *v2){
-   printf("Load attr %p %p\n", v1, v2);
-   dump(v1);
-   dump(v2);
-   return 0;
+PyObject_t* builtin_getattr(PyObject_t **v1, uint64_t alen, const PyObject_t * v2){
+   printf("Load attr %p %p\n", v1[0], v1[1]);
+   dump(v1[0]);
+   dump(v1[1]);
+
+   PyStr_t* attr = (PyStr_t*)v1[0];
+   //TODO: assert is string
+   if(attr->sz < 4 || attr->str[0] != '_' || attr->str[1] != '_' || attr->str[attr->sz-1] != '_' || attr->str[attr->sz-2] != '_')
+      goto noslot;
+
+noslot:
+   return v1[0];
 }
 
 __attribute__((noinline)) PyObject_t* builtin_print(PyObject_t ** pv1, 
@@ -172,6 +180,23 @@ __attribute__((always_inline)) PyObject_t* binop(PyObject_t *v1, PyObject_t *v2,
    }
    if(v2->vtable->dispatch[slot2]){
       ret = v2->vtable->dispatch[slot2]->code->func(&v2,2,v1);
+      if(!ret || ret->vtable->rtti != NOIMP_RTTI)
+         return ret;
+   }
+   printf("Could not perform operator\n");
+
+   THROW();
+
+   return (PyObject_t*)&global_noimp;
+}
+
+__attribute__((always_inline)) PyObject_t* unop(PyObject_t *v1, uint32_t slot){
+   //printf("binop %p %p %d %d\n", v1, v2, slot1, slot2);
+   //dump(v1);
+   //dump(v2);
+   PyObject_t *ret=0;
+   if(v1->vtable->dispatch[slot]){
+      ret = v1->vtable->dispatch[slot]->code->func(&v1,2,0);
       if(!ret || ret->vtable->rtti != NOIMP_RTTI)
          return ret;
    }
@@ -217,6 +242,14 @@ __attribute__((always_inline)) PyObject_t* f(PyObject_t **v1, uint64_t alen, PyO
    return res?&global_true:&global_false; \
 }
 
+#define UNARY_DECL(f,t,v,op) \
+__attribute__((always_inline)) PyObject_t* f(PyObject_t **v1, uint64_t alen, PyObject_t *v2){ \
+   int64_t val = ((t*)(v1[0]))->val; \
+   t *ret = (t*)malloc(sizeof(t)); \
+   ret->val =  op; \
+   ret->vtable = &v; \
+   return ret; \
+}
 
 #define BINARY_DECL_INT_TO_FLOAT(f,t,v,...) \
 __attribute__((always_inline)) PyObject_t* f(PyObject_t **v1, uint64_t alen, PyObject_t *v2){ \
@@ -272,6 +305,7 @@ BOOL_DECL(int_ge,PyInt_t,vtable_int,aval >= val)
 BOOL_DECL(int_le,PyInt_t,vtable_int,aval <= val) 
 BOOL_DECL(int_ne,PyInt_t,vtable_int,aval != val) 
 BOOL_DECL(int_eq,PyInt_t,vtable_int,aval == val) 
+UNARY_DECL(int_neg,PyInt_t,vtable_int,-val)
 
 
 PyObject_t* float_str(PyObject_t **v1, uint64_t alen, PyObject_t *v2){
