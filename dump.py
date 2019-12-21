@@ -152,7 +152,7 @@ magic_methods = ["float","str",
                  "add","sub","mul","floordiv","truediv","mod","pow","lshift","rshift","and","xor","or",
                  "radd","rsub","rmul","rfloordiv","rtruediv","rmod","rpow","rlshift","rrshift","rand","rxor","ror",
                  "iadd","isub","imul","itruediv","ifloordiv","imod","ipow","ilshift","irshift","iand","ixor","ior",
-                 "neg","pos","abs","invert","complex","int","long","oct","hex","complex",
+                 "neg","pos","abs","invert","complex","int","long","oct","hex",
                  "index","round","trunc","floor","ceil",
                  "enter","exit","iter","next",
                  "lt","le","eq","ne","ge","gt",
@@ -171,7 +171,7 @@ vtable_type = ir.global_context.get_identified_type("struct.vtable_t")
 pvtable_type = vtable_type.as_pointer()
 
 pyobj_type = ir.global_context.get_identified_type("class.pyobj")
-pyobj_type.set_body(pvtable_type)
+pyobj_type.set_body(pvtable_type,pvtable_type)
 ppyobj_type = pyobj_type.as_pointer()
 pppyobj_type = ppyobj_type.as_pointer()
 
@@ -179,7 +179,7 @@ pyfunc_type = ir.global_context.get_identified_type("class.pyfunc")
 ppyfunc_type = pyfunc_type.as_pointer()
 
 fnty = ir.FunctionType(ppyobj_type, (pppyobj_type, int64, ppyobj_type))
-vlist = [ir.IntType(64),ir.ArrayType(ppyfunc_type,len(magic_methods))]
+vlist = [ir.IntType(64),ir.ArrayType(ppyobj_type,len(magic_methods))]
 vtable_type.set_body(*vlist)
 
 pyint_type = ir.global_context.get_identified_type("PyInt")
@@ -240,24 +240,24 @@ def get_constant(con,name=""):
    if type(con) == int:
       g = ir.GlobalVariable(module,pyint_type,"global_" + str(const_idx))
       const_map[tup] = g
-      g.initializer = pyint_type([[vtable_map['int']],ir.Constant(int64,con)])
+      g.initializer = pyint_type([[vtable_map['int'],pvtable_type(None)],ir.Constant(int64,con)])
    elif type(con) == bool:
       g = ir.GlobalVariable(module,pybool_type,"global_" + str(con).lower())
       const_map[tup] = g
-      g.initializer = pybool_type([[vtable_map['bool']],ir.Constant(int64,int(con))])
+      g.initializer = pybool_type([[vtable_map['bool'],pvtable_type(None)],ir.Constant(int64,int(con))])
    elif type(con) == float:
       g = ir.GlobalVariable(module,pyfloat_type,"global_" + str(const_idx))
       const_map[tup] = g
-      g.initializer = pyfloat_type([[vtable_map['float']],ir.Constant(dbl,con)])
+      g.initializer = pyfloat_type([[vtable_map['float'],pvtable_type(None)],ir.Constant(dbl,con)])
    elif isinstance(con,str):
       t,p = make_str_type(len(con)+1)
       g = ir.GlobalVariable(module,t,"global_" + str(const_idx) + name)
       const_map[tup] = g
-      g.initializer = t([[vtable_map['str']],int64(len(con)+1),ir.Constant(ir.ArrayType(char,len(con)+1),bytearray(con + "\0",'utf8'))])
+      g.initializer = t([[vtable_map['str'],pvtable_type(None)],int64(len(con)+1),ir.Constant(ir.ArrayType(char,len(con)+1),bytearray(con + "\0",'utf8'))])
    elif isinstance(con, types.CodeType):
       g = ir.GlobalVariable(module,pycode_type,"global_" + str(const_idx))
       const_map[tup] = g
-      g.initializer = pycode_type([[vtable_map['code']], func_map[con]])
+      g.initializer = pycode_type([[vtable_map['code'],pvtable_type(None)], func_map[con]])
    elif isinstance(con, tuple):
       t,p = make_tuple_type(len(con))
       g = ir.GlobalVariable(module,t,"global_" + str(const_idx))
@@ -266,16 +266,16 @@ def get_constant(con,name=""):
       for c in con:
         c = get_constant(c)
         cons.append(c.bitcast(ppyobj_type) if c else None)
-      g.initializer = t([[vtable_map['tuple']], int64(len(con)), ir.ArrayType(ppyobj_type,len(con))(cons)])    
+      g.initializer = t([[vtable_map['tuple'],pvtable_type(None)], int64(len(con)), ir.ArrayType(ppyobj_type,len(con))(cons)])    
    elif isinstance(con, ir.Function):
       c = ir.GlobalVariable(module,pycode_type,"global_" + str(const_idx))      
       const_map[c] = c
       c.global_constant = True
-      c.initializer = pycode_type([[vtable_map['code']],con])
+      c.initializer = pycode_type([[vtable_map['code'],pvtable_type(None)],con])
 
       g = ir.GlobalVariable(module,pyfunc_type,"global_" + str(const_idx+1))      
       const_map[tup] = g
-      g.initializer = pyfunc_type([[vtable_map['func']],c,get_constant(con.name).bitcast(ppystr_type),make_tuple_type(0)[1](None)])
+      g.initializer = pyfunc_type([[vtable_map['func'],pvtable_type(None)],c,get_constant(con.name).bitcast(ppystr_type),make_tuple_type(0)[1](None)])
    else:
       print(type(con))
       assert(False)   
@@ -309,14 +309,14 @@ for t in integrals.keys():
    vinit = [int64(i),[]]
    for m in magic_methods:
       if m in integrals[t]:
-        vinit[1].append(get_constant(ir.Function(module, fnty, name=t + "_" + m)))
+        vinit[1].append(get_constant(ir.Function(module, fnty, name=t + "_" + m)).bitcast(ppyobj_type))
       else:
-        vinit[1].append(ppyfunc_type(None))
+        vinit[1].append(noimp.bitcast(ppyobj_type))
    g.initializer = vtable_type(vinit)
    g.global_constant = True
    i+=1
 
-noimp.initializer = pynoimp_type([[vtable_map['NotImplemented']]])
+noimp.initializer = pynoimp_type([[vtable_map['NotImplemented'],pvtable_type(None)]])
 
 ############## These functions are implemented in C
 malloc_type = ir.FunctionType(int8.as_pointer(), (int64,))
@@ -346,6 +346,10 @@ builtin_str.attributes.add("uwtable")
 
 builtin_getattr = ir.Function(module, fnty, name="builtin_getattr")
 builtin_getattr.attributes.add("uwtable")
+
+builtin_setattr = ir.Function(module, fnty, name="builtin_setattr")
+builtin_setattr.attributes.add("uwtable")
+
 
 begin_catch_type = ir.FunctionType(ir.VoidType(), [])
 begin_catch = ir.Function(module, begin_catch_type, "__cxa_begin_catch")
@@ -629,7 +633,7 @@ for c in codes:
           replace_block(ins,block_idx,newblock,builder)
           stack_ptr += 3
 
-       #debug(builder,"ins " + str(ins.offset))
+       debug(builder,"ins " + str(ins.offset))
 
        save_stack_ptr = stack_ptr
        if ins.opname=='LOAD_CONST':
@@ -670,6 +674,7 @@ for c in codes:
          t,p = make_tuple_type(ins.arg)
          obj = builder.bitcast(builder.call(malloc,[int64(p.pointee.get_abi_size(td))]),p)
          builder.store(vtable_map["tuple"],builder.gep(obj,(int32(0),int32(0),int32(0))))
+         builder.store(pvtable_type(None),builder.gep(obj,(int32(0),int32(0),int32(1))))
          builder.store(int64(ins.arg),builder.gep(obj,(int32(0),int32(1))))
          for te in range(ins.arg):
             builder.store(builder.load(stack[stack_ptr-1]),builder.gep(obj,(int32(0),int32(2),int32(te))))
@@ -679,6 +684,7 @@ for c in codes:
        elif ins.opname=='BUILD_LIST':
          obj = builder.bitcast(builder.call(malloc,[int64(pylist_type.get_abi_size(td))]),ppylist_type)
          builder.store(vtable_map["list"],builder.gep(obj,(int32(0),int32(0),int32(0))))
+         builder.store(pvtable_type(None),builder.gep(obj,(int32(0),int32(0),int32(1))))
          builder.store(int64(ins.arg),builder.gep(obj,(int32(0),int32(1))))
          builder.store(int64(ins.arg),builder.gep(obj,(int32(0),int32(2))))
          data = builder.bitcast(builder.call(malloc,[int64(pppyobj_type.get_abi_size(td))]),pppyobj_type)
@@ -733,6 +739,7 @@ for c in codes:
 
          obj = builder.bitcast(builder.call(malloc,[int64(pyfunc_type.get_abi_size(td))]),ppyfunc_type)
          builder.store(vtable_map['func'],builder.gep(obj,(int32(0),int32(0),int32(0))))
+         builder.store(pvtable_type(None),builder.gep(obj,(int32(0),int32(0),int32(1))))
          builder.store(builder.bitcast(code,ppycode_type),builder.gep(obj,(int32(0),int32(1))))
          builder.store(builder.bitcast(func_name,ppystr_type),builder.gep(obj,(int32(0),int32(2))))
          if args:
@@ -752,10 +759,16 @@ for c in codes:
          v = stack[stack_ptr]
 
          args = builder.alloca(ppyobj_type,2)
-         builder.store(v1,builder.gep(args,(int32(0),)))
-         builder.store(v2,builder.gep(args,(int32(1),)))
+         builder.store(v1,builder.gep(args,(int32(1),)))
+         builder.store(v2,builder.gep(args,(int32(0),)))
 
-         builder.store(builder.call(builtin_getattr,(args,int64(2),ppyobj_type(None))),v)
+         if len(except_stack):
+            newblock,builder,rval = invoke(func,builder,builtin_getattr,(args,int64(2),ppyobj_type(None)))
+            replace_block(ins,block_idx,newblock,builder)
+            builder.store(rval,stack[stack_ptr])
+         else:
+            builder.store(builder.call(builtin_getattr,(args,int64(2),ppyobj_type(None))),stack[stack_ptr])
+
          stack_ptr+=1
        elif ins.opname=='STORE_ATTR': #TODO:
          v1 = builder.load(stack[stack_ptr-1])
@@ -763,6 +776,18 @@ for c in codes:
          v2 = builder.load(stack[stack_ptr-1])
          stack_ptr-=1
          v3 = builder.bitcast(get_constant(ins.argval),ppyobj_type)
+
+         args = builder.alloca(ppyobj_type,3)
+         builder.store(v1,builder.gep(args,(int32(2),)))
+         builder.store(v2,builder.gep(args,(int32(0),)))
+         builder.store(v3,builder.gep(args,(int32(1),)))
+
+         if len(except_stack):
+            newblock,builder,rval = invoke(func,builder,builtin_setattr,(args,int64(3),ppyobj_type(None)))
+            replace_block(ins,block_idx,newblock,builder)
+         else:
+            builder.call(builtin_setattr,(args,int64(3),ppyobj_type(None)))
+
        elif ins.opname=='LOAD_BUILD_CLASS': #TODO
          v = stack[stack_ptr]
          builder.store(builder.bitcast(get_constant(builtin_buildclass),ppyobj_type),v)

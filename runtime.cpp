@@ -9,6 +9,9 @@
 
 extern "C" {
 
+#define register 
+#include "get_slot.cpp"
+
 static uint8_t arena[256][1024];
 static uint32_t malloc_pos=0;
 __attribute__((always_inline)) void* my_malloc(size_t sz){
@@ -22,7 +25,7 @@ typedef struct pyobj* (*fnty)(struct pyobj **v1, uint64_t alen, struct pyobj *v2
 
 typedef struct {
   uint64_t rtti;
-  pyfunc *dispatch[101]; //TODO: this has to be right, hard to sync with dump.py
+  pyobj *dispatch[100]; //TODO: this has to be right, hard to sync with dump.py
 } vtable_t;
 
 extern const vtable_t vtable_int, vtable_float, vtable_str, vtable_code, vtable_tuple, vtable_func, vtable_class, vtable_bool, vtable_NotImplemented;
@@ -30,6 +33,7 @@ extern const vtable_t vtable_int, vtable_float, vtable_str, vtable_code, vtable_
 typedef class pyobj {
 public:
   const vtable_t *vtable;
+  vtable_t *itable;
 } PyObject_t;
 
 typedef class pyint : public pyobj {
@@ -142,10 +146,35 @@ PyObject_t* builtin_getattr(PyObject_t **v1, uint64_t alen, const PyObject_t * v
 
    PyStr_t* attr = (PyStr_t*)v1[0];
    //TODO: assert is string
-   if(attr->sz < 4 || attr->str[0] != '_' || attr->str[1] != '_' || attr->str[attr->sz-1] != '_' || attr->str[attr->sz-2] != '_')
-      goto noslot;
+   const SlotResult *res = in_word_set(attr->str,attr->sz-1);
+   if(res){
+       printf("Slot is %d\n", res->slot_num);
+       return v1[1]->vtable->dispatch[res->slot_num]; //TODO: = v1[2]
+   }else{
+       printf("No slot: %s %lu\n", attr->str, attr->sz);
+       THROW()       
+   }
 
-noslot:
+   return v1[0];
+}
+
+PyObject_t* builtin_setattr(PyObject_t **v1, uint64_t alen, const PyObject_t * v2){
+   printf("Set attr %p %p %p\n", v1[0], v1[1], v1[2]);
+   dump(v1[0]);
+   dump(v1[1]);
+   dump(v1[2]);
+
+   PyStr_t* attr = (PyStr_t*)v1[1];
+   //TODO: assert is string
+   const SlotResult *res = in_word_set(attr->str,attr->sz-1);
+   if(res){
+       printf("Slot is %d\n", res->slot_num);
+       return v1[0]->vtable->dispatch[res->slot_num];
+   }else{
+       printf("No slot: %s %lu\n", attr->str, attr->sz);
+       THROW()       
+   }
+
    return v1[0];
 }
 
@@ -154,8 +183,8 @@ __attribute__((noinline)) PyObject_t* builtin_print(PyObject_t ** pv1,
                                                     const PyObject_t * v2){
    //printf("Print entry %p %p %p %lu\n", pv1, *pv1, (*pv1)->vtable, (*pv1)->vtable->rtti);
    PyObject_t* v1 = *pv1;
-   if(v1->vtable->rtti != STR_RTTI){
-      v1 = v1->vtable->dispatch[STR_SLOT]->code->func(pv1,1,0);
+   if(v1->vtable->rtti != STR_RTTI && v1->vtable->rtti != NOIMP_RTTI){
+      v1 = ((PyFunc_t*)v1->vtable->dispatch[STR_SLOT])->code->func(pv1,1,0);
    }
    printf("Print %p %p\n", v1, v2);
    dump(v1);
@@ -173,13 +202,13 @@ __attribute__((always_inline)) PyObject_t* binop(PyObject_t *v1, PyObject_t *v2,
    //dump(v1);
    //dump(v2);
    PyObject_t *ret=0;
-   if(v1->vtable->dispatch[slot1]){
-      ret = v1->vtable->dispatch[slot1]->code->func(&v1,2,v2);
+   if(v1->vtable->dispatch[slot1]->vtable->rtti != NOIMP_RTTI){
+      ret = ((PyFunc_t*)v1->vtable->dispatch[slot1])->code->func(&v1,2,v2);
       if(!ret || ret->vtable->rtti != NOIMP_RTTI)
          return ret;
    }
-   if(v2->vtable->dispatch[slot2]){
-      ret = v2->vtable->dispatch[slot2]->code->func(&v2,2,v1);
+   if(v2->vtable->dispatch[slot2]->vtable->rtti != NOIMP_RTTI){
+      ret = ((PyFunc_t*)v2->vtable->dispatch[slot2])->code->func(&v2,2,v1);
       if(!ret || ret->vtable->rtti != NOIMP_RTTI)
          return ret;
    }
@@ -196,7 +225,7 @@ __attribute__((always_inline)) PyObject_t* unop(PyObject_t *v1, uint32_t slot){
    //dump(v2);
    PyObject_t *ret=0;
    if(v1->vtable->dispatch[slot]){
-      ret = v1->vtable->dispatch[slot]->code->func(&v1,2,0);
+      ret = ((PyFunc_t*)v1->vtable->dispatch[slot])->code->func(&v1,2,0);
       if(!ret || ret->vtable->rtti != NOIMP_RTTI)
          return ret;
    }
@@ -229,6 +258,7 @@ __attribute__((always_inline)) PyObject_t* f(PyObject_t **v1, uint64_t alen, PyO
    int64_t val = ((t*)v2)->val; \
    ret->val =  op; \
    ret->vtable = &v; \
+   ret->itable = 0; \
    return ret; \
 }
 
@@ -248,6 +278,7 @@ __attribute__((always_inline)) PyObject_t* f(PyObject_t **v1, uint64_t alen, PyO
    t *ret = (t*)malloc(sizeof(t)); \
    ret->val =  op; \
    ret->vtable = &v; \
+   ret->itable = 0; \
    return ret; \
 }
 
@@ -256,7 +287,7 @@ __attribute__((always_inline)) PyObject_t* f(PyObject_t **v1, uint64_t alen, PyO
    double val=0; \
    if(v2->vtable->rtti != v.rtti) {\
       if(v2->vtable->dispatch[FLOAT_SLOT]){ \
-         PyFloat_t *temp = (PyFloat_t*)v2->vtable->dispatch[FLOAT_SLOT]->code->func(&v2,alen,0); \
+         PyFloat_t *temp = (PyFloat_t*)((PyFunc_t*)v2->vtable->dispatch[FLOAT_SLOT])->code->func(&v2,alen,0); \
          val = temp->val; \
       }else \
          return &global_noimp; \
@@ -266,6 +297,7 @@ __attribute__((always_inline)) PyObject_t* f(PyObject_t **v1, uint64_t alen, PyO
    double aval=((t*)(v1[0]))->val; \
    ret->val = __VA_ARGS__ ;\
    ret->vtable = &v; \
+   ret->itable = 0; \
    return ret; \
 }
 
@@ -314,6 +346,7 @@ PyObject_t* float_str(PyObject_t **v1, uint64_t alen, PyObject_t *v2){
     PyStr_t *ret = (PyStr_t*)malloc(sizeof(PyStr_t) + strlen(buf)+1);
     ret->sz = strlen(buf);
     ret->vtable = &vtable_str;
+    ret->itable = 0;
     strcpy(ret->str,buf);
     return ret;
 }
@@ -324,6 +357,7 @@ PyObject_t* int_str(PyObject_t **v1, uint64_t alen, PyObject_t *v2){
     PyStr_t *ret = (PyStr_t*)malloc(sizeof(PyStr_t) + strlen(buf)+1);
     ret->sz = strlen(buf);
     ret->vtable = &vtable_str;
+    ret->itable = 0;
     strcpy(ret->str,buf);
     return ret;
 }
@@ -334,6 +368,7 @@ PyObject_t* bool_str(PyObject_t **v1, uint64_t alen, PyObject_t *v2){
     PyStr_t *ret = (PyStr_t*)malloc(sizeof(PyStr_t) + strlen(buf)+1);
     ret->sz = strlen(buf);
     ret->vtable = &vtable_str;
+    ret->itable = 0;
     strcpy(ret->str,buf);
     return ret;
 }
@@ -346,6 +381,7 @@ PyObject_t* str_getitem(PyObject_t **v1, uint64_t alen, PyObject_t *v2){
     PyInt_t *ret = (PyInt_t*)malloc(sizeof(PyInt_t));
     ret->val = c;
     ret->vtable = &vtable_int;
+    ret->itable = 0;
     return ret;
 }
 
@@ -360,13 +396,14 @@ PyObject_t* join(PyObject_t *v1, PyObject_t *v2, char left, char right){
     PyStr_t *strs[t->sz];
     size_t total_sz=0;
     for(uint64_t i=0; i < t->sz; i++){
-       strs[i] = (PyStr_t*)t->objs[i]->vtable->dispatch[STR_SLOT]->code->func(&t->objs[i],1,0);
+       strs[i] = (PyStr_t*)((PyFunc_t*)t->objs[i]->vtable->dispatch[STR_SLOT])->code->func(&t->objs[i],1,0);
        total_sz += strs[i]->sz;
     }
     uint64_t str_sz = total_sz + 2 + (t->sz - 1)*2;
     PyStr_t *ret = (PyStr_t*)malloc(sizeof(PyStr_t) + str_sz + 1);
     ret->sz = str_sz;
     ret->vtable = &vtable_str;
+    ret->itable = 0;
 
     uint64_t pos=1;
     ret->str[0] = left;
@@ -391,13 +428,14 @@ PyObject_t* list_str(PyObject_t **v1, uint64_t alen, PyObject_t *v2){
     PyStr_t *strs[t->sz];
     size_t total_sz=0;
     for(uint64_t i=0; i < t->sz; i++){
-       strs[i] = (PyStr_t*)t->objs[i]->vtable->dispatch[STR_SLOT]->code->func(&t->objs[i],1,0);
+       strs[i] = (PyStr_t*)((PyFunc_t*)t->objs[i]->vtable->dispatch[STR_SLOT])->code->func(&t->objs[i],1,0);
        total_sz += strs[i]->sz;
     }
     uint64_t str_sz = total_sz + 2 + (t->sz - 1)*2;
     PyStr_t *ret = (PyStr_t*)malloc(sizeof(PyStr_t) + str_sz + 1);
     ret->sz = str_sz;
     ret->vtable = &vtable_str;
+    ret->itable = 0;
 
     uint64_t pos=1;
     ret->str[0] = left;
@@ -426,6 +464,7 @@ PyObject_t* func_str(PyObject_t **v1, uint64_t alen, PyObject_t *v2){
     PyFunc_t* func = (PyFunc_t*)(v1[0]);
     PyStr_t *ret = (PyStr_t*)malloc(sizeof(PyStr_t) + func->str->sz + strlen("<function  >") + 1);
     ret->vtable = &vtable_str;
+    ret->itable = 0;
     sprintf(ret->str,"<function %s>", func->str->str);
     ret->sz = strlen(ret->str);
     return ret;
@@ -439,6 +478,7 @@ __attribute__((always_inline)) PyObject_t* int_float(PyObject_t **v1, uint64_t a
    PyFloat_t *ret = (PyFloat_t*)malloc(sizeof(PyFloat_t)); 
    ret->val = ((PyInt_t*)(v1[0]))->val; 
    ret->vtable = &vtable_float; 
+   ret->itable = 0;
    return ret; 
 }
 
@@ -452,6 +492,7 @@ __attribute__((always_inline)) PyObject_t* str_add(PyObject_t **v1, uint64_t ale
     size_t newsz = s1->sz + s2->sz;
     PyStr_t *ret = (PyStr_t*)malloc(sizeof(PyStr_t) + newsz + 1);
     ret->vtable = &vtable_str;
+    ret->itable = 0;
     ret->sz = newsz;
     memcpy(ret->str,s1->str,s1->sz);
     memcpy(ret->str + s1->sz, s2->str, s2->sz);
@@ -467,16 +508,19 @@ PyObject_t* builtin_buildclass(PyObject_t **v1, uint64_t alen, PyObject_t *v2){
    PyCode_t *code = (PyCode_t*)malloc(sizeof(PyCode_t));
    code->func = builtin_new;
    code->vtable = &vtable_code;
+   code->itable = 0;
 
    PyStr_t *str = (PyStr_t*)malloc(sizeof(PyStr_t) + 4);
    strcpy(str->str, "new");
    str->sz = 4;
    str->vtable = &vtable_str;
+   str->itable = 0;
 
    PyFunc_t *func = (PyFunc_t*)malloc(sizeof(PyFunc_t));
    func->code = code;
    func->str = str;
    func->vtable = &vtable_func;
+   func->itable = 0;
 
    return func;
 }
