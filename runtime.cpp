@@ -149,7 +149,9 @@ PyObject_t* builtin_getattr(PyObject_t **v1, uint64_t alen, const PyObject_t * v
    const SlotResult *res = in_word_set(attr->str,attr->sz-1);
    if(res){
        printf("Slot is %d\n", res->slot_num);
-       return v1[1]->vtable->dispatch[res->slot_num]; //TODO: = v1[2]
+       if(v1[1]->itable && v1[1]->itable->dispatch[res->slot_num]->vtable->rtti != NOIMP_RTTI)
+          return v1[1]->itable->dispatch[res->slot_num]; 
+       return v1[1]->vtable->dispatch[res->slot_num]; 
    }else{
        printf("No slot: %s %lu\n", attr->str, attr->sz);
        THROW()       
@@ -169,7 +171,11 @@ PyObject_t* builtin_setattr(PyObject_t **v1, uint64_t alen, const PyObject_t * v
    const SlotResult *res = in_word_set(attr->str,attr->sz-1);
    if(res){
        printf("Slot is %d\n", res->slot_num);
-       return v1[0]->vtable->dispatch[res->slot_num];
+       if(!v1[0]->itable){
+           printf("Attribute is readonly\n");
+           THROW()
+       }
+       v1[0]->itable->dispatch[res->slot_num] = v1[2];
    }else{
        printf("No slot: %s %lu\n", attr->str, attr->sz);
        THROW()       
