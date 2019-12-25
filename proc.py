@@ -9,6 +9,7 @@ from llvmlite import ir
 from llvmlite import binding as llvm
 
 from dump import show_file, codes
+import emph
 
 USAGE = "  usage: %s <PYC FILENAME>" % sys.argv[0]
 
@@ -40,6 +41,14 @@ tp_pers = ir.FunctionType(int32, (), var_arg=True)
 pers = ir.Function(module, tp_pers, '__gxx_personality_v0')
 
 i=0
+
+def get_int_array(a):
+   const_idx = len(const_map)
+   t = ir.ArrayType(int32,len(a))
+   g = ir.GlobalVariable(module,t,"global_" + str(const_idx))
+   const_map["global_" + str(const_idx)] = g
+   g.initializer = t([int32(v) for v in a])
+   return g
 
 ############## This function creates a global variables decleration for any compile time constants
 def get_constant(con,name=""):
@@ -150,6 +159,9 @@ printf = ir.Function(module, printf_type, name="printf")
 import_name_type = ir.FunctionType(ppyobj_type, (ppyobj_type, ppyobj_type, ppyobj_type))
 import_name = ir.Function(module, import_name_type, name="import_name")
 
+local_lookup_type = ir.FunctionType(int32, (make_tuple_type(0)[1], ir.ArrayType(int32,0).as_pointer(),ir.ArrayType(int32,0).as_pointer()))
+local_lookup = ir.Function(module, local_lookup_type, name="local_lookup")
+
 builtin_print = ir.Function(module, fnty, name="builtin_print")
 builtin_buildclass = ir.Function(module, fnty, name="builtin_buildclass")
 
@@ -172,6 +184,7 @@ end_catch = ir.Function(module, begin_catch_type, "__cxa_end_catch")
 resume_type = ir.FunctionType(ir.VoidType(), [int8.as_pointer()])
 resume = ir.Function(module, resume_type, "_Unwind_Resume")
 
+#TODO: these functions are no good and should ideally use something like unop. need to check itable and potential class members 
 name_to_slots = ["repr","str"]
 for name in name_to_slots:
    func = locals()["builtin_" + name]
@@ -217,6 +230,9 @@ unop.attributes.add("uwtable")
 truth_type = ir.FunctionType(int1, (ppyobj_type,))
 truth = ir.Function(module, truth_type, name="truth")
 truth.attributes.add("uwtable")
+
+call_function = ir.Function(module,fnty, name="call_function")
+call_function.attributes.add("uwtable")
 
 di_file = module.add_debug_info("DIFile", {
     "filename":        "test.py",
@@ -324,6 +340,23 @@ for c in codes:
 
    #personality i8* bitcast (i32 (...)* @__gxx_personality_v0 to i8*)
    func_map[c] = func
+
+   #build tables
+   func = ir.Function(module, lfnty, name="code_blob_" + str(i) + "_locals")
+   func.attributes.personality = pers
+   func.attributes.add("alwaysinline")
+   func.attributes.add("uwtable")
+   block = func.append_basic_block(name="entry")
+   builder = ir.IRBuilder(block)
+
+   g,v = emph.CreateMinimalPerfectHash({c.co_names[i]:i for i in range(len(c.co_names))})
+   g = builder.bitcast(get_int_array(g),ir.ArrayType(int32,0).as_pointer())
+   v = builder.bitcast(get_int_array(v),ir.ArrayType(int32,0).as_pointer())
+   strs = builder.bitcast(get_constant(c.co_names),make_tuple_type(0)[1])
+
+   
+   builder.ret(builder.call(local_lookup,(strs,g,v)))
+
    i+=1
 
 get_constant(False)
@@ -460,7 +493,7 @@ for c in codes:
          else:
             builder.store(builder.bitcast(const_map[tup],ppyobj_type),v)
          stack_ptr+=1
-       elif ins.opname=='LOAD_FAST' or ins.opname=='LOAD_NAME':
+       elif ins.opname=='LOAD_FAST' or ins.opname=='LOAD_NAME': #TODO: this is all wrong, name first searches locals then globals then builtin. name[ins.arg] may not even be a thing
          v = stack[stack_ptr]
          tbl = builder.load((local if ins.opname=="LOAD_FAST" else name)[ins.arg])
          builder.store(tbl,v)
@@ -518,21 +551,20 @@ for c in codes:
             stack_ptr-=1
          #debug(builder,"post store " + str(ins.offset))
 
-         cfunc = builder.bitcast(builder.load(stack[stack_ptr-1]),ppyfunc_type)
+         tgt = builder.load(stack[stack_ptr-1])
          stack_ptr-=1
-         code = builder.load(builder.gep(cfunc,(int32(0),int32(1))))
-         target = builder.load(builder.gep(code,(int32(0),int32(1))))
+
          #debug(builder,"deref " + str(ins.offset))
 
          if not ins.arg:
             args = ppyobj_type(None)
 
          if len(except_stack):
-            newblock,builder,rval = invoke(func,builder,target,(args,int64(ins.arg),ppyobj_type(None)))
+            newblock,builder,rval = invoke(func,builder,call_function,(args,int64(ins.arg),tgt))
             replace_block(ins,block_idx,newblock,builder)
             builder.store(rval,stack[stack_ptr])
          else:
-            builder.store(builder.call(target,(args,int64(ins.arg),ppyobj_type(None))),stack[stack_ptr])
+            builder.store(builder.call(call_function,(args,int64(ins.arg),tgt)),stack[stack_ptr])
 
          stack_ptr+=1
          builder.call(stackrestore,[savestack])

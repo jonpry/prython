@@ -21,7 +21,10 @@ __attribute__((always_inline)) void* my_malloc(size_t sz){
 
 class pyobj;
 class pyfunc;
+class pystr;
 typedef struct pyobj* (*fnty)(struct pyobj **v1, uint64_t alen, struct pyobj *v2);
+typedef int32_t (*lfnty )(pystr *);
+
 
 typedef struct {
   uint64_t rtti;
@@ -84,6 +87,13 @@ public:
 typedef class pynoimp : public pyobj {
 } PyNoImp_t;
 
+typedef class pyclass : public pyobj {
+public:
+  PyStr_t* name;
+  PyFunc_t* constructor;
+  lfnty  locals;
+} PyClass_t;
+
 extern PyNoImp_t global_noimp;
 extern PyBool_t global_false, global_true;
 
@@ -93,9 +103,11 @@ const char *rtti_strings[] = {"int", "float", "tuple", "str", "code", "func", "c
 #define FLOAT_RTTI 1
 #define TUPLE_RTTI 2
 #define STR_RTTI 3
+#define FUNC_RTTI 5
 
 #define FLOAT_SLOT 0
 #define STR_SLOT 1
+#define CALL_SLOT 2
 
 #undef malloc
 void* malloc(size_t) __attribute__((returns_nonnull));
@@ -203,6 +215,26 @@ PyObject_t* builtin_new(PyObject_t **v1, uint64_t alen, PyObject_t *v2){
    return 0;
 }
 
+__attribute__((always_inline)) PyObject_t* call_function(PyObject_t **v1, uint64_t alen, PyObject_t* v2){
+    if(v2->vtable->rtti == FUNC_RTTI){
+       PyFunc_t *func = (PyFunc_t*)v2;
+       return func->code->func(v1, alen, 0);
+    }
+    if(v2->vtable->dispatch[CALL_SLOT] && v2->vtable->dispatch[CALL_SLOT]->vtable->rtti != NOIMP_RTTI){
+       printf("Can call via vtable\n");
+    }
+
+    if(v2->itable->dispatch[CALL_SLOT] && v2->itable->dispatch[CALL_SLOT]->vtable->rtti != NOIMP_RTTI){
+       printf("Can call via itable\n");
+       assert(v2->itable->dispatch[CALL_SLOT]->vtable->rtti == FUNC_RTTI);
+       return ((PyFunc_t*)v2->itable->dispatch[CALL_SLOT])->code->func(v1,alen,0);
+    }
+
+    THROW()
+    return 0;
+}
+
+
 __attribute__((always_inline)) PyObject_t* binop(PyObject_t *v1, PyObject_t *v2, uint32_t slot1, uint32_t slot2){
    //printf("binop %p %p %d %d\n", v1, v2, slot1, slot2);
    //dump(v1);
@@ -254,6 +286,23 @@ __attribute__((always_inline)) bool truth(PyObject_t *v1){
    //printf("Was true\n");
    return true;
 }
+
+__attribute__((always_inline)) uint32_t hash_fnv(uint32_t d, PyStr_t *v){
+    if(d == 0)
+       d = 0x01000193;
+
+    // Use the FNV algorithm from http://isthe.com/chongo/tech/comp/fnv/ 
+    for(uint32_t i=0; i < v->sz; i++)
+        d = ( (d * 0x01000193) ^ v->str[i]) & 0xffffffff;
+
+    return d;
+}
+
+__attribute__((always_inline)) int32_t local_lookup(PyTuple_t *t, uint32_t *g, uint32_t *v){
+    //TODO:
+    return 0;
+}
+
 
 #define BINARY_DECL(f,t,v,op) \
 __attribute__((always_inline)) PyObject_t* f(PyObject_t **v1, uint64_t alen, PyObject_t *v2){ \
@@ -507,28 +556,22 @@ __attribute__((always_inline)) PyObject_t* str_add(PyObject_t **v1, uint64_t ale
 }
 
 PyObject_t* builtin_buildclass(PyObject_t **v1, uint64_t alen, PyObject_t *v2){
-   printf("Buildclass %p %p\n", v1[0], v2);
-   dump(v1[0]);
-   dump(v2);
+   printf("Buildclass %p %p %p\n", v1[0], v1[1], v1[2]);
+   dump(v1[1]);
+   dump(v1[2]);
 
-   PyCode_t *code = (PyCode_t*)malloc(sizeof(PyCode_t));
-   code->func = builtin_new;
-   code->vtable = &vtable_code;
-   code->itable = 0;
+   PyClass_t *cls = (PyClass_t*)malloc(sizeof(PyClass_t));
+   cls->vtable = &vtable_class;
+   cls->itable = (vtable_t*)malloc(sizeof(vtable_t));
+   cls->itable->rtti = 0;
+   for(int i=0; i < 100; i++){
+      cls->itable->dispatch[i] = &global_noimp;
+   }
+   cls->itable->dispatch[CALL_SLOT] = v1[2];
 
-   PyStr_t *str = (PyStr_t*)malloc(sizeof(PyStr_t) + 4);
-   strcpy(str->str, "new");
-   str->sz = 4;
-   str->vtable = &vtable_str;
-   str->itable = 0;
-
-   PyFunc_t *func = (PyFunc_t*)malloc(sizeof(PyFunc_t));
-   func->code = code;
-   func->str = str;
-   func->vtable = &vtable_func;
-   func->itable = 0;
-
-   return func;
+   cls->name = (PyStr_t*)v1[1];
+   cls->constructor = (PyFunc_t*)v1[2];
+   return cls;
 }
 
 PyObject_t* code_blob_0(PyObject_t **, uint64_t, PyObject_t*);

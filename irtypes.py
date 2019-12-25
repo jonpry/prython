@@ -69,8 +69,10 @@ pystr_type, ppystr_type = make_str_type(0,"class.pystr")
 
 pyfunc_type.set_body(pyobj_type, ppycode_type, ppystr_type, make_tuple_type(0,"class.pytuple")[1])
 
-pyclass_type = ir.global_context.get_identified_type("PyClass")
-pyclass_type.set_body(pyfunc_type)
+lfnty = ir.FunctionType(int32, (make_str_type(0)[1],))
+
+pyclass_type = ir.global_context.get_identified_type("class.pyclass")
+pyclass_type.set_body(pyfunc_type,ppyfunc_type,lfnty.as_pointer())
 ppyclass_type = pyclass_type.as_pointer()
 
 pybool_type = ir.global_context.get_identified_type("PyBool")
@@ -88,4 +90,6 @@ ppynoimp_type = pynoimp_type.as_pointer()
 pylist_type = ir.global_context.get_identified_type("PyList")
 pylist_type.set_body(pyobj_type,int64,int64,pppyobj_type)
 ppylist_type = pylist_type.as_pointer()
+
+
 
