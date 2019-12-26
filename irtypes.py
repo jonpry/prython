@@ -61,15 +61,15 @@ pyfloat_type = ir.global_context.get_identified_type("PyFloat")
 pyfloat_type.set_body(pyobj_type, dbl)
 ppyfloat_type = pyfloat_type.as_pointer()
 
+lfnty = ir.FunctionType(int32, (make_str_type(0)[1],))
+
 pycode_type = ir.global_context.get_identified_type("class.pycode")
-pycode_type.set_body(pyobj_type, fnty.as_pointer())
+pycode_type.set_body(pyobj_type, fnty.as_pointer(),lfnty.as_pointer())
 ppycode_type = pycode_type.as_pointer()
 
 pystr_type, ppystr_type = make_str_type(0,"class.pystr")
 
 pyfunc_type.set_body(pyobj_type, ppycode_type, ppystr_type, make_tuple_type(0,"class.pytuple")[1])
-
-lfnty = ir.FunctionType(int32, (make_str_type(0)[1],))
 
 pyclass_type = ir.global_context.get_identified_type("class.pyclass")
 pyclass_type.set_body(pyfunc_type,ppyfunc_type,lfnty.as_pointer())

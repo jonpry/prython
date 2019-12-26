@@ -81,7 +81,7 @@ def get_constant(con,name=""):
    elif isinstance(con, types.CodeType):
       g = ir.GlobalVariable(module,pycode_type,"global_" + str(const_idx))
       const_map[tup] = g
-      g.initializer = pycode_type([[vtable_map['code'],pvtable_type(None)], func_map[con]])
+      g.initializer = pycode_type([[vtable_map['code'],pvtable_type(None)], func_map[con], table_map[con]])
    elif isinstance(con, tuple):
       t,p = make_tuple_type(len(con))
       g = ir.GlobalVariable(module,t,"global_" + str(const_idx))
@@ -95,7 +95,7 @@ def get_constant(con,name=""):
       c = ir.GlobalVariable(module,pycode_type,"global_" + str(const_idx))      
       const_map[c] = c
       c.global_constant = True
-      c.initializer = pycode_type([[vtable_map['code'],pvtable_type(None)],con])
+      c.initializer = pycode_type([[vtable_map['code'],pvtable_type(None)],con,lfnty.as_pointer()(None)])
 
       g = ir.GlobalVariable(module,pyfunc_type,"global_" + str(const_idx+1))      
       const_map[tup] = g
@@ -123,6 +123,7 @@ integrals = {"int" : { "mul" , "add", "xor", "or", "and", "radd", "mod", "floord
              "dict" : {}}
 
 vtable_map = {}
+table_map = {}
 
 for t in integrals.keys():
    g = ir.GlobalVariable(module,vtable_type,"vtable_" + t)
@@ -356,7 +357,7 @@ for c in codes:
 
    
    builder.ret(builder.call(local_lookup,(strs,g,v)))
-
+   table_map[c] = func
    i+=1
 
 get_constant(False)

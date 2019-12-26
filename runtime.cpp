@@ -70,6 +70,7 @@ public:
 typedef struct pycode : public pyobj {
 public:
   PyObject_t *(*func)(PyObject_t** obj, uint64_t alen, PyObject_t *obj2);
+  lfnty locals;
 } PyCode_t;
 
 typedef class pyfunc : public pyobj {
@@ -571,6 +572,9 @@ PyObject_t* builtin_buildclass(PyObject_t **v1, uint64_t alen, PyObject_t *v2){
 
    cls->name = (PyStr_t*)v1[1];
    cls->constructor = (PyFunc_t*)v1[2];
+   cls->locals = ((PyFunc_t*)v1[2])->code->locals;
+
+   assert(cls->locals);
    return cls;
 }
 
