@@ -81,7 +81,7 @@ def get_constant(con,name=""):
    elif isinstance(con, types.CodeType):
       g = ir.GlobalVariable(module,pycode_type,"global_" + str(const_idx))
       const_map[tup] = g
-      g.initializer = pycode_type([[vtable_map['code'],pvtable_type(None)], func_map[con], table_map[con]])
+      g.initializer = pycode_type([[vtable_map['code'],pvtable_type(None)], func_map[con], table_map[con], get_constant(con.co_names).bitcast(make_tuple_type(0)[1])])
    elif isinstance(con, tuple):
       t,p = make_tuple_type(len(con))
       g = ir.GlobalVariable(module,t,"global_" + str(const_idx))
@@ -95,7 +95,7 @@ def get_constant(con,name=""):
       c = ir.GlobalVariable(module,pycode_type,"global_" + str(const_idx))      
       const_map[c] = c
       c.global_constant = True
-      c.initializer = pycode_type([[vtable_map['code'],pvtable_type(None)],con,lfnty.as_pointer()(None)])
+      c.initializer = pycode_type([[vtable_map['code'],pvtable_type(None)],con,lfnty.as_pointer()(None), make_tuple_type(0)[1](None)])
 
       g = ir.GlobalVariable(module,pyfunc_type,"global_" + str(const_idx+1))      
       const_map[tup] = g
@@ -415,7 +415,7 @@ for c in codes:
       if s < c.co_argcount:
          builder.store(builder.load(builder.gep(args,(int32(s),))),l)
       else:
-         builder.store(ir.Constant(ppyobj_type,None),l)
+         builder.store(noimp.bitcast(ppyobj_type),l)
       local.append(l)
 
    name = []
@@ -546,7 +546,7 @@ for c in codes:
          stack_ptr+=1
        elif ins.opname=='CALL_FUNCTION': #TODO
          savestack = builder.call(stacksave,[])
-         args = builder.alloca(ppyobj_type,ins.arg)
+         args = builder.alloca(ppyobj_type,ins.arg+1)
          for i in range(ins.arg): 
             builder.store(builder.load(stack[stack_ptr-1]),builder.gep(args,(int32(i),)))
             stack_ptr-=1
@@ -557,15 +557,14 @@ for c in codes:
 
          #debug(builder,"deref " + str(ins.offset))
 
-         if not ins.arg:
-            args = ppyobj_type(None)
+         builder.store(tgt,builder.gep(args,(int32(ins.arg),)))
 
          if len(except_stack):
-            newblock,builder,rval = invoke(func,builder,call_function,(args,int64(ins.arg),tgt))
+            newblock,builder,rval = invoke(func,builder,call_function,(args,int64(ins.arg+1),pppyobj_type(None)))
             replace_block(ins,block_idx,newblock,builder)
             builder.store(rval,stack[stack_ptr])
          else:
-            builder.store(builder.call(call_function,(args,int64(ins.arg),tgt)),stack[stack_ptr])
+            builder.store(builder.call(call_function,(args,int64(ins.arg+1),pppyobj_type(None))),stack[stack_ptr])
 
          stack_ptr+=1
          builder.call(stackrestore,[savestack])
@@ -615,7 +614,7 @@ for c in codes:
             replace_block(ins,block_idx,newblock,builder)
             builder.store(rval,stack[stack_ptr])
          else:
-            builder.store(builder.call(builtin_getattr,(args,int64(2),ppyobj_type(None))),stack[stack_ptr])
+            builder.store(builder.call(builtin_getattr,(args,int64(2),pppyobj_type(None))),stack[stack_ptr])
 
          stack_ptr+=1
        elif ins.opname=='STORE_ATTR': #TODO:
@@ -631,10 +630,10 @@ for c in codes:
          builder.store(v3,builder.gep(args,(int32(1),)))
 
          if len(except_stack):
-            newblock,builder,rval = invoke(func,builder,builtin_setattr,(args,int64(3),ppyobj_type(None)))
+            newblock,builder,rval = invoke(func,builder,builtin_setattr,(args,int64(3),pppyobj_type(None)))
             replace_block(ins,block_idx,newblock,builder)
          else:
-            builder.call(builtin_setattr,(args,int64(3),ppyobj_type(None)))
+            builder.call(builtin_setattr,(args,int64(3),pppyobj_type(None)))
 
        elif ins.opname=='LOAD_BUILD_CLASS': #TODO
          v = stack[stack_ptr]

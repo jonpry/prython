@@ -22,7 +22,7 @@ __attribute__((always_inline)) void* my_malloc(size_t sz){
 class pyobj;
 class pyfunc;
 class pystr;
-typedef struct pyobj* (*fnty)(struct pyobj **v1, uint64_t alen, struct pyobj *v2);
+typedef struct pyobj* (*fnty)(struct pyobj **v1, uint64_t alen, struct pyobj **v2);
 typedef int32_t (*lfnty )(pystr *);
 
 
@@ -70,7 +70,8 @@ public:
 typedef struct pycode : public pyobj {
 public:
   PyObject_t *(*func)(PyObject_t** obj, uint64_t alen, PyObject_t *obj2);
-  lfnty locals;
+  lfnty locals_func;
+  PyTuple_t *locals;
 } PyCode_t;
 
 typedef class pyfunc : public pyobj {
@@ -92,7 +93,8 @@ typedef class pyclass : public pyobj {
 public:
   PyStr_t* name;
   PyFunc_t* constructor;
-  lfnty  locals;
+  lfnty  locals_func;
+  PyTuple_t *locals;
 } PyClass_t;
 
 extern PyNoImp_t global_noimp;
@@ -152,7 +154,7 @@ PyObject_t* import_name(PyObject_t *v1, PyObject_t *v2, PyObject_t *v3){
    return 0;
 }
 
-PyObject_t* builtin_getattr(PyObject_t **v1, uint64_t alen, const PyObject_t * v2){
+PyObject_t* builtin_getattr(PyObject_t **v1, uint64_t alen, const PyObject_t **v2){
    printf("Load attr %p %p\n", v1[0], v1[1]);
    dump(v1[0]);
    dump(v1[1]);
@@ -173,7 +175,7 @@ PyObject_t* builtin_getattr(PyObject_t **v1, uint64_t alen, const PyObject_t * v
    return v1[0];
 }
 
-PyObject_t* builtin_setattr(PyObject_t **v1, uint64_t alen, const PyObject_t * v2){
+PyObject_t* builtin_setattr(PyObject_t **v1, uint64_t alen, const PyObject_t **v2){
    printf("Set attr %p %p %p\n", v1[0], v1[1], v1[2]);
    dump(v1[0]);
    dump(v1[1]);
@@ -199,7 +201,7 @@ PyObject_t* builtin_setattr(PyObject_t **v1, uint64_t alen, const PyObject_t * v
 
 __attribute__((noinline)) PyObject_t* builtin_print(PyObject_t ** pv1, 
                                                     uint64_t alen,
-                                                    const PyObject_t * v2){
+                                                    const PyObject_t **v2){
    //printf("Print entry %p %p %p %lu\n", pv1, *pv1, (*pv1)->vtable, (*pv1)->vtable->rtti);
    PyObject_t* v1 = *pv1;
    if(v1->vtable->rtti != STR_RTTI && v1->vtable->rtti != NOIMP_RTTI){
@@ -207,28 +209,29 @@ __attribute__((noinline)) PyObject_t* builtin_print(PyObject_t ** pv1,
    }
    printf("Print %p %p\n", v1, v2);
    dump(v1);
-   dump(v2);
+   dump(pv1[1]);
    return 0;
 }
 
-PyObject_t* builtin_new(PyObject_t **v1, uint64_t alen, PyObject_t *v2){
+PyObject_t* builtin_new(PyObject_t **v1, uint64_t alen, PyObject_t **v2){
    printf("new\n");
    return 0;
 }
 
-__attribute__((always_inline)) PyObject_t* call_function(PyObject_t **v1, uint64_t alen, PyObject_t* v2){
-    if(v2->vtable->rtti == FUNC_RTTI){
-       PyFunc_t *func = (PyFunc_t*)v2;
-       return func->code->func(v1, alen, 0);
+__attribute__((always_inline)) PyObject_t* call_function(PyObject_t **v1, uint64_t alen, PyObject_t** v2){
+    PyObject_t *tgt = (PyObject_t*)v1[alen-1];
+    if(tgt->vtable->rtti == FUNC_RTTI){
+       PyFunc_t *func = (PyFunc_t*)tgt;
+       return func->code->func(v1, alen-1, 0);
     }
-    if(v2->vtable->dispatch[CALL_SLOT] && v2->vtable->dispatch[CALL_SLOT]->vtable->rtti != NOIMP_RTTI){
+    if(tgt->vtable->dispatch[CALL_SLOT] && tgt->vtable->dispatch[CALL_SLOT]->vtable->rtti != NOIMP_RTTI){
        printf("Can call via vtable\n");
     }
 
-    if(v2->itable->dispatch[CALL_SLOT] && v2->itable->dispatch[CALL_SLOT]->vtable->rtti != NOIMP_RTTI){
+    if(tgt->itable->dispatch[CALL_SLOT] && tgt->itable->dispatch[CALL_SLOT]->vtable->rtti != NOIMP_RTTI){
        printf("Can call via itable\n");
-       assert(v2->itable->dispatch[CALL_SLOT]->vtable->rtti == FUNC_RTTI);
-       return ((PyFunc_t*)v2->itable->dispatch[CALL_SLOT])->code->func(v1,alen,0);
+       assert(tgt->itable->dispatch[CALL_SLOT]->vtable->rtti == FUNC_RTTI);
+       return ((PyFunc_t*)tgt->itable->dispatch[CALL_SLOT])->code->func(v1,alen-1,0);
     }
 
     THROW()
@@ -241,13 +244,14 @@ __attribute__((always_inline)) PyObject_t* binop(PyObject_t *v1, PyObject_t *v2,
    //dump(v1);
    //dump(v2);
    PyObject_t *ret=0;
+   PyObject_t *vs[2] = {v1,v2};
    if(v1->vtable->dispatch[slot1]->vtable->rtti != NOIMP_RTTI){
-      ret = ((PyFunc_t*)v1->vtable->dispatch[slot1])->code->func(&v1,2,v2);
+      ret = ((PyFunc_t*)v1->vtable->dispatch[slot1])->code->func(vs,2,v2);
       if(!ret || ret->vtable->rtti != NOIMP_RTTI)
          return ret;
    }
    if(v2->vtable->dispatch[slot2]->vtable->rtti != NOIMP_RTTI){
-      ret = ((PyFunc_t*)v2->vtable->dispatch[slot2])->code->func(&v2,2,v1);
+      ret = ((PyFunc_t*)v2->vtable->dispatch[slot2])->code->func(vs,2,v1);
       if(!ret || ret->vtable->rtti != NOIMP_RTTI)
          return ret;
    }
@@ -306,12 +310,12 @@ __attribute__((always_inline)) int32_t local_lookup(PyTuple_t *t, uint32_t *g, u
 
 
 #define BINARY_DECL(f,t,v,op) \
-__attribute__((always_inline)) PyObject_t* f(PyObject_t **v1, uint64_t alen, PyObject_t *v2){ \
-   if(v2->vtable->rtti != v.rtti) \
+__attribute__((always_inline)) PyObject_t* f(PyObject_t **v1, uint64_t alen, PyObject_t **v2){ \
+   if(v1[1]->vtable->rtti != v.rtti) \
      return &global_noimp; \
    t *ret = (t*)malloc(sizeof(t)); \
    int64_t aval = ((t*)(v1[0]))->val; \
-   int64_t val = ((t*)v2)->val; \
+   int64_t val = ((t*)v1[1])->val; \
    ret->val =  op; \
    ret->vtable = &v; \
    ret->itable = 0; \
@@ -319,17 +323,17 @@ __attribute__((always_inline)) PyObject_t* f(PyObject_t **v1, uint64_t alen, PyO
 }
 
 #define BOOL_DECL(f,t,v,op) \
-__attribute__((always_inline)) PyObject_t* f(PyObject_t **v1, uint64_t alen, PyObject_t *v2){ \
-   if(v2->vtable->rtti != v.rtti) \
+__attribute__((always_inline)) PyObject_t* f(PyObject_t **v1, uint64_t alen, PyObject_t **v2){ \
+   if(v1[1]->vtable->rtti != v.rtti) \
      return &global_noimp; \
    int64_t aval = ((t*)(v1[0]))->val; \
-   int64_t val = ((t*)v2)->val; \
+   int64_t val = ((t*)v1[1])->val; \
    bool res =  op; \
    return res?&global_true:&global_false; \
 }
 
 #define UNARY_DECL(f,t,v,op) \
-__attribute__((always_inline)) PyObject_t* f(PyObject_t **v1, uint64_t alen, PyObject_t *v2){ \
+__attribute__((always_inline)) PyObject_t* f(PyObject_t **v1, uint64_t alen, PyObject_t **v2){ \
    int64_t val = ((t*)(v1[0]))->val; \
    t *ret = (t*)malloc(sizeof(t)); \
    ret->val =  op; \
@@ -339,16 +343,16 @@ __attribute__((always_inline)) PyObject_t* f(PyObject_t **v1, uint64_t alen, PyO
 }
 
 #define BINARY_DECL_INT_TO_FLOAT(f,t,v,...) \
-__attribute__((always_inline)) PyObject_t* f(PyObject_t **v1, uint64_t alen, PyObject_t *v2){ \
+__attribute__((always_inline)) PyObject_t* f(PyObject_t **v1, uint64_t alen, PyObject_t **v2){ \
    double val=0; \
-   if(v2->vtable->rtti != v.rtti) {\
-      if(v2->vtable->dispatch[FLOAT_SLOT]){ \
-         PyFloat_t *temp = (PyFloat_t*)((PyFunc_t*)v2->vtable->dispatch[FLOAT_SLOT])->code->func(&v2,alen,0); \
+   if(v1[1]->vtable->rtti != v.rtti) {\
+      if(v1[1]->vtable->dispatch[FLOAT_SLOT]){ \
+         PyFloat_t *temp = (PyFloat_t*)((PyFunc_t*)v1[1]->vtable->dispatch[FLOAT_SLOT])->code->func(&v1[1],alen-1,0); \
          val = temp->val; \
       }else \
          return &global_noimp; \
    } else \
-      val = ((PyFloat_t*)v2)->val; \
+      val = ((PyFloat_t*)v1[1])->val; \
    t *ret = (t*)malloc(sizeof(t)); \
    double aval=((t*)(v1[0]))->val; \
    ret->val = __VA_ARGS__ ;\
@@ -357,7 +361,7 @@ __attribute__((always_inline)) PyObject_t* f(PyObject_t **v1, uint64_t alen, PyO
    return ret; \
 }
 
-typedef PyObject_t* (*bin_func_t)(PyObject_t*, uint64_t alen, PyObject_t*);
+typedef PyObject_t* (*bin_func_t)(PyObject_t*, uint64_t alen, PyObject_t**);
 //bin_func_t my_func = [](PyObject_t*, PyObject_t*){return 0;}
 
 BINARY_DECL_INT_TO_FLOAT(float_add,PyFloat_t,vtable_float,aval+val)
@@ -396,7 +400,7 @@ BOOL_DECL(int_eq,PyInt_t,vtable_int,aval == val)
 UNARY_DECL(int_neg,PyInt_t,vtable_int,-val)
 
 
-PyObject_t* float_str(PyObject_t **v1, uint64_t alen, PyObject_t *v2){
+PyObject_t* float_str(PyObject_t **v1, uint64_t alen, PyObject_t **v2){
     char buf[32];
     sprintf(buf,"%lf", ((PyFloat_t*)*v1)->val);
     PyStr_t *ret = (PyStr_t*)malloc(sizeof(PyStr_t) + strlen(buf)+1);
@@ -407,7 +411,7 @@ PyObject_t* float_str(PyObject_t **v1, uint64_t alen, PyObject_t *v2){
     return ret;
 }
 
-PyObject_t* int_str(PyObject_t **v1, uint64_t alen, PyObject_t *v2){
+PyObject_t* int_str(PyObject_t **v1, uint64_t alen, PyObject_t **v2){
     char buf[32];
     sprintf(buf,"%ld", ((PyInt_t*)*v1)->val);
     PyStr_t *ret = (PyStr_t*)malloc(sizeof(PyStr_t) + strlen(buf)+1);
@@ -418,7 +422,7 @@ PyObject_t* int_str(PyObject_t **v1, uint64_t alen, PyObject_t *v2){
     return ret;
 }
 
-PyObject_t* bool_str(PyObject_t **v1, uint64_t alen, PyObject_t *v2){
+PyObject_t* bool_str(PyObject_t **v1, uint64_t alen, PyObject_t **v2){
     char buf[32];
     sprintf(buf,"%s", ((PyInt_t*)*v1)->val?"True":"False");
     PyStr_t *ret = (PyStr_t*)malloc(sizeof(PyStr_t) + strlen(buf)+1);
@@ -429,7 +433,7 @@ PyObject_t* bool_str(PyObject_t **v1, uint64_t alen, PyObject_t *v2){
     return ret;
 }
 
-PyObject_t* str_getitem(PyObject_t **v1, uint64_t alen, PyObject_t *v2){
+PyObject_t* str_getitem(PyObject_t **v1, uint64_t alen, PyObject_t **v2){
     PyStr_t *t = (PyStr_t*)*v1;
     PyInt_t *i = (PyInt_t*)v2;
     char c = t->str[i->val];   
@@ -441,7 +445,7 @@ PyObject_t* str_getitem(PyObject_t **v1, uint64_t alen, PyObject_t *v2){
     return ret;
 }
 
-PyObject_t* tuple_getitem(PyObject_t **v1, uint64_t alen, PyObject_t *v2){
+PyObject_t* tuple_getitem(PyObject_t **v1, uint64_t alen, PyObject_t **v2){
     PyTuple_t *t = (PyTuple_t*)*v1;
     PyInt_t *i = (PyInt_t*)v2;
     return t->objs[i->val];   
@@ -477,7 +481,7 @@ PyObject_t* join(PyObject_t *v1, PyObject_t *v2, char left, char right){
     return ret;
 }
 
-PyObject_t* list_str(PyObject_t **v1, uint64_t alen, PyObject_t *v2){
+PyObject_t* list_str(PyObject_t **v1, uint64_t alen, PyObject_t **v2){
     char left = '[';
     char right = ']';
     PyList_t *t = (PyList_t*)(v1[0]);
@@ -510,12 +514,12 @@ PyObject_t* list_str(PyObject_t **v1, uint64_t alen, PyObject_t *v2){
 
 }
 
-PyObject_t* tuple_str(PyObject_t **v1, uint64_t alen, PyObject_t *v2){
+PyObject_t* tuple_str(PyObject_t **v1, uint64_t alen, PyObject_t **v2){
     //assert(false);
-    return join(v1[0],v2,'(',')');
+    return join(v1[0],v1[1],'(',')');
 }
 
-PyObject_t* func_str(PyObject_t **v1, uint64_t alen, PyObject_t *v2){
+PyObject_t* func_str(PyObject_t **v1, uint64_t alen, PyObject_t **v2){
     //printf("func_str %p\n", v1, *v1);
     PyFunc_t* func = (PyFunc_t*)(v1[0]);
     PyStr_t *ret = (PyStr_t*)malloc(sizeof(PyStr_t) + func->str->sz + strlen("<function  >") + 1);
@@ -526,11 +530,11 @@ PyObject_t* func_str(PyObject_t **v1, uint64_t alen, PyObject_t *v2){
     return ret;
 }
 
-__attribute__((always_inline)) PyObject_t* str_str(PyObject_t **v1, uint64_t alen, PyObject_t *v2){
+__attribute__((always_inline)) PyObject_t* str_str(PyObject_t **v1, uint64_t alen, PyObject_t **v2){
     return v1[0];
 }
 
-__attribute__((always_inline)) PyObject_t* int_float(PyObject_t **v1, uint64_t alen, PyObject_t *v2){
+__attribute__((always_inline)) PyObject_t* int_float(PyObject_t **v1, uint64_t alen, PyObject_t **v2){
    PyFloat_t *ret = (PyFloat_t*)malloc(sizeof(PyFloat_t)); 
    ret->val = ((PyInt_t*)(v1[0]))->val; 
    ret->vtable = &vtable_float; 
@@ -538,7 +542,7 @@ __attribute__((always_inline)) PyObject_t* int_float(PyObject_t **v1, uint64_t a
    return ret; 
 }
 
-__attribute__((always_inline)) PyObject_t* str_add(PyObject_t **v1, uint64_t alen, PyObject_t *v2){
+__attribute__((always_inline)) PyObject_t* str_add(PyObject_t **v1, uint64_t alen, PyObject_t **v2){
     PyStr_t *s1 = (PyStr_t*)v1[0];
     PyStr_t *s2 = (PyStr_t*)v2;
 
@@ -556,7 +560,7 @@ __attribute__((always_inline)) PyObject_t* str_add(PyObject_t **v1, uint64_t ale
     return ret;
 }
 
-PyObject_t* builtin_buildclass(PyObject_t **v1, uint64_t alen, PyObject_t *v2){
+PyObject_t* builtin_buildclass(PyObject_t **v1, uint64_t alen, PyObject_t **v2){
    printf("Buildclass %p %p %p\n", v1[0], v1[1], v1[2]);
    dump(v1[1]);
    dump(v1[2]);
@@ -572,8 +576,10 @@ PyObject_t* builtin_buildclass(PyObject_t **v1, uint64_t alen, PyObject_t *v2){
 
    cls->name = (PyStr_t*)v1[1];
    cls->constructor = (PyFunc_t*)v1[2];
+   cls->locals_func = ((PyFunc_t*)v1[2])->code->locals_func;
    cls->locals = ((PyFunc_t*)v1[2])->code->locals;
 
+   assert(cls->locals_func);
    assert(cls->locals);
    return cls;
 }
