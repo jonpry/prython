@@ -425,9 +425,10 @@ for c in codes:
           builder.store(builder.bitcast(get_constant(locals()['builtin_print_wrap']),ppyobj_type),l)
       else:
          builtin_names = ["str", "repr", "getattr", "setattr"]
-         for n in builtin_names:
-           if c.co_names[s] == n:
-              builder.store(builder.bitcast(get_constant(locals()['builtin_'  + n]),ppyobj_type),l)
+         if c.co_names[s] in builtin_names:
+            builder.store(builder.bitcast(get_constant(locals()['builtin_'  + n]),ppyobj_type),l)
+         else:
+            builder.store(noimp.bitcast(ppyobj_type),l)
 
       name.append(l)
 
@@ -560,11 +561,11 @@ for c in codes:
          builder.store(tgt,builder.gep(args,(int32(ins.arg),)))
 
          if len(except_stack):
-            newblock,builder,rval = invoke(func,builder,call_function,(args,int64(ins.arg+1),pppyobj_type(None)))
+            newblock,builder,rval = invoke(func,builder,call_function,(args,int64(ins.arg+1),ppppyobj_type(None)))
             replace_block(ins,block_idx,newblock,builder)
             builder.store(rval,stack[stack_ptr])
          else:
-            builder.store(builder.call(call_function,(args,int64(ins.arg+1),pppyobj_type(None))),stack[stack_ptr])
+            builder.store(builder.call(call_function,(args,int64(ins.arg+1),ppppyobj_type(None))),stack[stack_ptr])
 
          stack_ptr+=1
          builder.call(stackrestore,[savestack])
@@ -597,7 +598,28 @@ for c in codes:
          builder.store(builder.bitcast(obj,ppyobj_type),stack[stack_ptr])
          stack_ptr+=1
        elif ins.opname=='RETURN_VALUE':
-         builder.ret(builder.load(stack[stack_ptr-1]))
+         debug(builder,"@ret")
+         cond = builder.icmp_unsigned("!=",int64(None),builder.ptrtoint(func.args[2],int64))
+         tblock = func.append_basic_block(name="block" + str(block_num+1))
+         block_num += 1
+         fblock = func.append_basic_block(name="block" + str(block_num+1))
+         block_num += 1
+         tbuild = ir.IRBuilder(tblock)
+         fbuild = ir.IRBuilder(fblock)
+
+         builder.cbranch(cond,tblock,fblock)
+
+         debug(tbuild,"true")
+         mem = tbuild.call(malloc, [tbuild.mul(int64(ppyobj_type.get_abi_size(td)), int64(len(c.co_names)))])
+         mem = tbuild.bitcast(mem,pppyobj_type)
+         for i in range(len(c.co_names)):
+            tbuild.store(tbuild.load(name[i]), tbuild.gep(mem,[int32(i)]))        
+         tbuild.store(mem,tbuild.gep(func.args[2],[int32(0)]))
+         
+         tbuild.ret(tbuild.load(stack[stack_ptr-1]))
+
+
+         fbuild.ret(fbuild.load(stack[stack_ptr-1]))
          stack_ptr-=1
        elif ins.opname=='LOAD_ATTR': #TODO:
          v1 = builder.load(stack[stack_ptr-1])
@@ -614,7 +636,7 @@ for c in codes:
             replace_block(ins,block_idx,newblock,builder)
             builder.store(rval,stack[stack_ptr])
          else:
-            builder.store(builder.call(builtin_getattr,(args,int64(2),pppyobj_type(None))),stack[stack_ptr])
+            builder.store(builder.call(builtin_getattr,(args,int64(2),ppppyobj_type(None))),stack[stack_ptr])
 
          stack_ptr+=1
        elif ins.opname=='STORE_ATTR': #TODO:
@@ -630,10 +652,10 @@ for c in codes:
          builder.store(v3,builder.gep(args,(int32(1),)))
 
          if len(except_stack):
-            newblock,builder,rval = invoke(func,builder,builtin_setattr,(args,int64(3),pppyobj_type(None)))
+            newblock,builder,rval = invoke(func,builder,builtin_setattr,(args,int64(3),ppppyobj_type(None)))
             replace_block(ins,block_idx,newblock,builder)
          else:
-            builder.call(builtin_setattr,(args,int64(3),pppyobj_type(None)))
+            builder.call(builtin_setattr,(args,int64(3),ppppyobj_type(None)))
 
        elif ins.opname=='LOAD_BUILD_CLASS': #TODO
          v = stack[stack_ptr]

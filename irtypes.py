@@ -45,11 +45,12 @@ pyobj_type = ir.global_context.get_identified_type("class.pyobj")
 pyobj_type.set_body(pvtable_type,pvtable_type)
 ppyobj_type = pyobj_type.as_pointer()
 pppyobj_type = ppyobj_type.as_pointer()
+ppppyobj_type = pppyobj_type.as_pointer()
 
 pyfunc_type = ir.global_context.get_identified_type("class.pyfunc")
 ppyfunc_type = pyfunc_type.as_pointer()
 
-fnty = ir.FunctionType(ppyobj_type, (pppyobj_type, int64, pppyobj_type))
+fnty = ir.FunctionType(ppyobj_type, (pppyobj_type, int64, ppppyobj_type))
 vlist = [ir.IntType(64),ir.ArrayType(ppyobj_type,len(magic_methods))]
 vtable_type.set_body(*vlist)
 
