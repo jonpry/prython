@@ -440,8 +440,8 @@ PyObject_t* bool_str(PyObject_t **v1, uint64_t alen, PyObject_t ***v2){
 }
 
 PyObject_t* str_getitem(PyObject_t **v1, uint64_t alen, PyObject_t ***v2){
-    PyStr_t *t = (PyStr_t*)*v1;
-    PyInt_t *i = (PyInt_t*)v2;
+    PyStr_t *t = (PyStr_t*)v1[0];
+    PyInt_t *i = (PyInt_t*)v1[1];
     char c = t->str[i->val];   
 
     PyInt_t *ret = (PyInt_t*)malloc(sizeof(PyInt_t));
@@ -452,8 +452,8 @@ PyObject_t* str_getitem(PyObject_t **v1, uint64_t alen, PyObject_t ***v2){
 }
 
 PyObject_t* tuple_getitem(PyObject_t **v1, uint64_t alen, PyObject_t ***v2){
-    PyTuple_t *t = (PyTuple_t*)*v1;
-    PyInt_t *i = (PyInt_t*)v2;
+    PyTuple_t *t = (PyTuple_t*)v1[0];
+    PyInt_t *i = (PyInt_t*)v1[1];
     return t->objs[i->val];   
 }
 
@@ -550,7 +550,7 @@ __attribute__((always_inline)) PyObject_t* int_float(PyObject_t **v1, uint64_t a
 
 __attribute__((always_inline)) PyObject_t* str_add(PyObject_t **v1, uint64_t alen, PyObject_t ***v2){
     PyStr_t *s1 = (PyStr_t*)v1[0];
-    PyStr_t *s2 = (PyStr_t*)v2;
+    PyStr_t *s2 = (PyStr_t*)v1[1];
 
     if(s2->vtable->rtti != STR_RTTI) \
       return &global_noimp;

@@ -23,6 +23,8 @@ if sys.argv[1] == "-h":
 else:
     show_file(sys.argv[1])
 
+debug_prints = False
+
 ############## End Stuff to print out pyc file
 
 module = ir.Module(name=__file__)
@@ -258,6 +260,8 @@ flags.add(module.add_metadata([int32(1), "wchar_size", int32(4)]))
 ############## Helper code
 
 def debug(builder, s, *args):
+  if not debug_prints:
+     return
   alist = [builder.gep(get_constant(s + "\n","debug_" + s),(int32(0),int32(2),int32(0)))]
   builder.call(printf,alist)
 
@@ -382,7 +386,6 @@ def replace_block(ins,block_idx,newblock,builder):
    blocks[block_idx][2] = newblock
    blocks[block_idx][3] = builder                    
 
-
 ############## Emit llvm for each code section
 for c in codes:
    print("*************")
@@ -426,7 +429,7 @@ for c in codes:
       else:
          builtin_names = ["str", "repr", "getattr", "setattr"]
          if c.co_names[s] in builtin_names:
-            builder.store(builder.bitcast(get_constant(locals()['builtin_'  + n]),ppyobj_type),l)
+            builder.store(builder.bitcast(get_constant(locals()['builtin_'  + c.co_names[s]]),ppyobj_type),l)
          else:
             builder.store(noimp.bitcast(ppyobj_type),l)
 
@@ -663,8 +666,8 @@ for c in codes:
          stack_ptr+=1
        elif ins.opname=='POP_JUMP_IF_FALSE':
          v = builder.load(stack[stack_ptr-1])
-         c = builder.call(truth,(v,))
-         builder.cbranch(builder.not_(c),blocks_by_ofs[ins.arg],blocks[block_idx+1][2])
+         call = builder.call(truth,(v,))
+         builder.cbranch(builder.not_(call),blocks_by_ofs[ins.arg],blocks[block_idx+1][2])
          stack_ptr-=1
          branch_stack[ins.arg] = stack_ptr
          did_jmp = True
