@@ -23,7 +23,7 @@ if sys.argv[1] == "-h":
 else:
     show_file(sys.argv[1])
 
-debug_prints = False
+debug_prints = True
 
 ############## End Stuff to print out pyc file
 
@@ -99,9 +99,9 @@ def get_constant(con,name=""):
       c.global_constant = True
       c.initializer = pycode_type([[vtable_map['code'],pvtable_type(None)],con,lfnty.as_pointer()(None), make_tuple_type(0)[1](None)])
 
-      g = ir.GlobalVariable(module,pyfunc_type,"global_" + str(const_idx+1))      
+      g = ir.GlobalVariable(module,pyfunc_type,"pyfunc_" + con.name)      
       const_map[tup] = g
-      g.initializer = pyfunc_type([[vtable_map['func'],pvtable_type(None)],c,get_constant(con.name).bitcast(ppystr_type),make_tuple_type(0)[1](None)])
+      g.initializer = pyfunc_type([[vtable_map['func'],pvtable_type(None)],c,get_constant(con.name).bitcast(ppystr_type),make_tuple_type(0)[1](None), ppyclass_type(None)])
    else:
       print(type(con))
       assert(False)   
@@ -161,6 +161,9 @@ printf = ir.Function(module, printf_type, name="printf")
 
 import_name_type = ir.FunctionType(ppyobj_type, (ppyobj_type, ppyobj_type, ppyobj_type))
 import_name = ir.Function(module, import_name_type, name="import_name")
+
+load_name_type = ir.FunctionType(ppyobj_type, (ppyobj_type, ppyobj_type))
+load_name = ir.Function(module, load_name_type, name="load_name")
 
 local_lookup_type = ir.FunctionType(int32, (make_tuple_type(0)[1], ir.ArrayType(int32,0).as_pointer(),ir.ArrayType(int32,0).as_pointer()))
 local_lookup = ir.Function(module, local_lookup_type, name="local_lookup")
@@ -384,7 +387,11 @@ di_func_type = module.add_debug_info("DISubroutineType", {
 def replace_block(ins,block_idx,newblock,builder):
    blocks_by_ofs[ins.offset] = newblock
    blocks[block_idx][2] = newblock
-   blocks[block_idx][3] = builder                    
+   blocks[block_idx][3] = builder                
+
+builtin_names = ["buildclass", "str", "repr", "getattr", "setattr", "print_wrap"]
+for n in builtin_names:
+   get_constant(locals()['builtin_' + n])
 
 ############## Emit llvm for each code section
 for c in codes:
@@ -424,15 +431,7 @@ for c in codes:
    name = []
    for s in range(len(c.co_names)):
       l = builder.alloca(ppyobj_type,1)
-      if c.co_names[s] == 'print':
-          builder.store(builder.bitcast(get_constant(locals()['builtin_print_wrap']),ppyobj_type),l)
-      else:
-         builtin_names = ["str", "repr", "getattr", "setattr"]
-         if c.co_names[s] in builtin_names:
-            builder.store(builder.bitcast(get_constant(locals()['builtin_'  + c.co_names[s]]),ppyobj_type),l)
-         else:
-            builder.store(noimp.bitcast(ppyobj_type),l)
-
+      builder.store(noimp.bitcast(ppyobj_type),l)
       name.append(l)
 
    blocks = [[0,0,block,builder]]
@@ -500,7 +499,8 @@ for c in codes:
          stack_ptr+=1
        elif ins.opname=='LOAD_FAST' or ins.opname=='LOAD_NAME': #TODO: this is all wrong, name first searches locals then globals then builtin. name[ins.arg] may not even be a thing
          v = stack[stack_ptr]
-         tbl = builder.load((local if ins.opname=="LOAD_FAST" else name)[ins.arg])
+         #TODO: use invoke
+         tbl = builder.call(load_name, (builder.load((local if ins.opname=="LOAD_FAST" else name)[ins.arg]),builder.bitcast(get_constant(ins.argval),ppyobj_type)))
          builder.store(tbl,v)
          stack_ptr+=1
        elif ins.opname=='LOAD_GLOBAL': #TODO
@@ -564,11 +564,11 @@ for c in codes:
          builder.store(tgt,builder.gep(args,(int32(ins.arg),)))
 
          if len(except_stack):
-            newblock,builder,rval = invoke(func,builder,call_function,(args,int64(ins.arg+1),ppppyobj_type(None)))
+            newblock,builder,rval = invoke(func,builder,call_function,(args,int64(ins.arg+1),pppytuple_type(None)))
             replace_block(ins,block_idx,newblock,builder)
             builder.store(rval,stack[stack_ptr])
          else:
-            builder.store(builder.call(call_function,(args,int64(ins.arg+1),ppppyobj_type(None))),stack[stack_ptr])
+            builder.store(builder.call(call_function,(args,int64(ins.arg+1),pppytuple_type(None))),stack[stack_ptr])
 
          stack_ptr+=1
          builder.call(stackrestore,[savestack])
@@ -613,11 +613,14 @@ for c in codes:
          builder.cbranch(cond,tblock,fblock)
 
          debug(tbuild,"true")
-         mem = tbuild.call(malloc, [tbuild.mul(int64(ppyobj_type.get_abi_size(td)), int64(len(c.co_names)))])
-         mem = tbuild.bitcast(mem,pppyobj_type)
+         mem = tbuild.call(malloc, [int64(make_tuple_type(len(c.co_names))[0].get_abi_size(td))])
+         mem = tbuild.bitcast(mem,make_tuple_type(len(c.co_names))[1])
+         tbuild.store(vtable_map['tuple'], tbuild.gep(mem,[int32(0),int32(0),int32(0)]))        
+         tbuild.store(int64(len(c.co_names)), tbuild.gep(mem,[int32(0),int32(1)]))        
+
          for i in range(len(c.co_names)):
-            tbuild.store(tbuild.load(name[i]), tbuild.gep(mem,[int32(i)]))        
-         tbuild.store(mem,tbuild.gep(func.args[2],[int32(0)]))
+            tbuild.store(tbuild.load(name[i]), tbuild.gep(mem,[int32(0),int32(2),int32(i)]))        
+         tbuild.store(tbuild.bitcast(mem,ppytuple_type),tbuild.gep(func.args[2],[int32(0)]))
          
          tbuild.ret(tbuild.load(stack[stack_ptr-1]))
 
@@ -639,7 +642,7 @@ for c in codes:
             replace_block(ins,block_idx,newblock,builder)
             builder.store(rval,stack[stack_ptr])
          else:
-            builder.store(builder.call(builtin_getattr,(args,int64(2),ppppyobj_type(None))),stack[stack_ptr])
+            builder.store(builder.call(builtin_getattr,(args,int64(2),pppytuple_type(None))),stack[stack_ptr])
 
          stack_ptr+=1
        elif ins.opname=='STORE_ATTR': #TODO:
@@ -655,10 +658,10 @@ for c in codes:
          builder.store(v3,builder.gep(args,(int32(1),)))
 
          if len(except_stack):
-            newblock,builder,rval = invoke(func,builder,builtin_setattr,(args,int64(3),ppppyobj_type(None)))
+            newblock,builder,rval = invoke(func,builder,builtin_setattr,(args,int64(3),pppytuple_type(None)))
             replace_block(ins,block_idx,newblock,builder)
          else:
-            builder.call(builtin_setattr,(args,int64(3),ppppyobj_type(None)))
+            builder.call(builtin_setattr,(args,int64(3),pppytuple_type(None)))
 
        elif ins.opname=='LOAD_BUILD_CLASS': #TODO
          v = stack[stack_ptr]

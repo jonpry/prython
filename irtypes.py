@@ -47,10 +47,13 @@ ppyobj_type = pyobj_type.as_pointer()
 pppyobj_type = ppyobj_type.as_pointer()
 ppppyobj_type = pppyobj_type.as_pointer()
 
+ppytuple_type = make_tuple_type(0,"class.pytuple")[1]
+pppytuple_type = ppytuple_type.as_pointer()
+
 pyfunc_type = ir.global_context.get_identified_type("class.pyfunc")
 ppyfunc_type = pyfunc_type.as_pointer()
 
-fnty = ir.FunctionType(ppyobj_type, (pppyobj_type, int64, ppppyobj_type))
+fnty = ir.FunctionType(ppyobj_type, (pppyobj_type, int64, pppytuple_type))
 vlist = [ir.IntType(64),ir.ArrayType(ppyobj_type,len(magic_methods))]
 vtable_type.set_body(*vlist)
 
@@ -65,16 +68,17 @@ ppyfloat_type = pyfloat_type.as_pointer()
 lfnty = ir.FunctionType(int32, (make_str_type(0)[1],))
 
 pycode_type = ir.global_context.get_identified_type("class.pycode")
-pycode_type.set_body(pyobj_type, fnty.as_pointer(),lfnty.as_pointer(), make_tuple_type(0,"class.pytuple")[1])
+pycode_type.set_body(pyobj_type, fnty.as_pointer(),lfnty.as_pointer(), make_tuple_type(0)[1])
 ppycode_type = pycode_type.as_pointer()
 
 pystr_type, ppystr_type = make_str_type(0,"class.pystr")
 
-pyfunc_type.set_body(pyobj_type, ppycode_type, ppystr_type, make_tuple_type(0)[1])
-
 pyclass_type = ir.global_context.get_identified_type("class.pyclass")
-pyclass_type.set_body(pyfunc_type,ppyfunc_type,lfnty.as_pointer(), make_tuple_type(0)[1])
 ppyclass_type = pyclass_type.as_pointer()
+
+pyfunc_type.set_body(pyobj_type, ppycode_type, ppystr_type, make_tuple_type(0)[1], ppyclass_type)
+
+pyclass_type.set_body(pyobj_type, make_str_type(0)[1] ,ppyfunc_type,lfnty.as_pointer(), make_tuple_type(0)[1])
 
 pybool_type = ir.global_context.get_identified_type("PyBool")
 pybool_type.set_body(pyobj_type, int64)
