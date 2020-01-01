@@ -1,5 +1,8 @@
 #!/usr/bin/python3
 
+gperf = open("get_slot.gperf", "w")
+slots = open("slots.h", "w")
+
 om = ["float","str",
                  "add","sub","mul","floordiv","truediv","mod","pow","lshift","rshift","and","xor","or",
                  "radd","rsub","rmul","rfloordiv","rtruediv","rmod","rpow","rlshift","rrshift","rand","rxor","ror",
@@ -16,8 +19,10 @@ om = ["float","str",
                  "await","aiter","anext","aenter","aexit",
                  ];
 
+sl = ["int", "float", "tuple", "str", "code", "func", "class", "bool", "noimp", "exception", "list", "dict"]
 
-print("""%{
+
+gperf.write("""%{
 typedef struct SlotResult SlotResult;
 %}
 struct SlotResult
@@ -25,10 +30,22 @@ struct SlotResult
   const char *name;
   int slot_num;
   };
-%%""")
+%%""" + "\n")
 
 for i in range(len(om)):
-  print("__" + om[i] + "__, " + str(i)) 
+  gperf.write("__" + om[i] + "__, " + str(i) + "\n") 
+
+slots.write("#ifndef SLOTS_H\n#define SLOTS_H\n\n")
+
+for i in range(len(om)):
+  slots.write("#define " + om[i].upper() + "_SLOT " + str(i) + "\n") 
+
+slots.write("\n")
+
+for i in range(len(sl)):
+  slots.write("#define " + sl[i].upper() + "_RTTI " + str(1<<i) + "\n") 
+
+slots.write("#endif //SLOTS_H\n")
 exit(0)
 
 for i in range(len(om)):

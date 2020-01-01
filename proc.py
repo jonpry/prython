@@ -133,7 +133,7 @@ for t in integrals.keys():
 
 for t in integrals.keys():
    g = vtable_map[t]
-   vinit = [int64(i),[]]
+   vinit = [int64(1<<i),[]]
    for m in magic_methods:
       if m in integrals[t]:
         vinit[1].append(get_constant(ir.Function(module, fnty, name=t + "_" + m)).bitcast(ppyobj_type))
@@ -176,6 +176,9 @@ builtin_repr.attributes.add("uwtable")
 
 builtin_str = ir.Function(module, fnty, name="builtin_str")
 builtin_str.attributes.add("uwtable")
+
+builtin_new = ir.Function(module, fnty, name="builtin_new")
+builtin_new.attributes.add("uwtable")
 
 builtin_getattr = ir.Function(module, fnty, name="builtin_getattr")
 builtin_getattr.attributes.add("uwtable")
@@ -389,7 +392,7 @@ def replace_block(ins,block_idx,newblock,builder):
    blocks[block_idx][2] = newblock
    blocks[block_idx][3] = builder                
 
-builtin_names = ["buildclass", "str", "repr", "getattr", "setattr", "print_wrap"]
+builtin_names = ["buildclass", "str", "repr", "getattr", "setattr", "print_wrap", "new"]
 for n in builtin_names:
    get_constant(locals()['builtin_' + n])
 

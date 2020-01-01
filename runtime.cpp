@@ -11,13 +11,7 @@ extern "C" {
 
 #define register 
 #include "get_slot.cpp"
-
-static uint8_t arena[256][1024];
-static uint32_t malloc_pos=0;
-__attribute__((always_inline)) void* my_malloc(size_t sz){
-   return arena[malloc_pos++];
-}
-
+#include "slots.h"
 
 class pyobj;
 class pyfunc;
@@ -98,25 +92,17 @@ public:
   PyFunc_t* constructor;
   lfnty  locals_func;
   PyTuple_t *locals;
+  PyTuple_t *values;
 } PyClass_t;
 
 extern PyNoImp_t global_noimp;
 extern PyBool_t global_false, global_true;
 extern PyFunc_t pyfunc_builtin_print_wrap, pyfunc_builtin_str, 
                 pyfunc_builtin_repr, pyfunc_builtin_getattr, 
-                pyfunc_builtin_setattr, pyfunc_builtin_buildclass;
+                pyfunc_builtin_setattr, pyfunc_builtin_buildclass,
+                pyfunc_builtin_new;
 
 const char *rtti_strings[] = {"int", "float", "tuple", "str", "code", "func", "class", "bool", "NotImplemented"};
-#define NOIMP_RTTI 8
-#define INT_RTTI 0
-#define FLOAT_RTTI 1
-#define TUPLE_RTTI 2
-#define STR_RTTI 3
-#define FUNC_RTTI 5
-
-#define FLOAT_SLOT 0
-#define STR_SLOT 1
-#define CALL_SLOT 2
 
 #undef malloc
 void* malloc(size_t) __attribute__((returns_nonnull));
@@ -137,7 +123,7 @@ __attribute__((noinline)) void dump(const PyObject_t *v){
       return;
    }
 
-   printf("RTTI: %lx %s\n", v->vtable->rtti, rtti_strings[v->vtable->rtti]);
+   printf("RTTI: %lx %s\n", v->vtable->rtti, rtti_strings[__builtin_ffsll(v->vtable->rtti)]);
 
    switch(v->vtable->rtti){
       case INT_RTTI: {
@@ -216,11 +202,6 @@ __attribute__((noinline)) PyObject_t* builtin_print(PyObject_t ** pv1,
    printf("Print %p %p\n", v1, v2);
    dump(v1);
    dump(pv1[1]);
-   return 0;
-}
-
-PyObject_t* builtin_new(PyObject_t **v1, uint64_t alen, PyTuple_t **v2){
-   printf("new\n");
    return 0;
 }
 
@@ -603,6 +584,16 @@ __attribute__((always_inline)) PyObject_t* str_add(PyObject_t **v1, uint64_t ale
     return ret;
 }
 
+PyObject_t* builtin_new(PyObject_t **v1, uint64_t alen, PyTuple_t **v2){
+   printf("new\n");
+   exit(0);
+
+/*
+   PyFunc_t *bound_func = (PyFunc_t*)malloc(sizeof(PyFunc_t));
+   *bound_func = *(PyFunc_t*)(v1[2]);
+*/
+}
+
 PyObject_t* builtin_buildclass(PyObject_t **v1, uint64_t alen, PyTuple_t **v2){
    printf("Buildclass\n");
    printf("%p %p %p\n", v1[0], v1[1], v1[2]);
@@ -610,36 +601,40 @@ PyObject_t* builtin_buildclass(PyObject_t **v1, uint64_t alen, PyTuple_t **v2){
    dump(v1[2]);
 
    PyFunc_t *constructor = (PyFunc_t*)(v1[2]);
-   PyTuple_t *locals=0;
-   constructor->code->func(0,0,&locals);
-
-       printf("Locals: %p\n", locals);
-       for(int i=0; i < locals->sz; i++){
-          printf("L: %p %p\n", locals->objs[i], locals->objs[i]->vtable);
-          dump(locals->objs[i]);
-       }
-   exit(0);
+   PyTuple_t *values=0;
+   constructor->code->func(0,0,&values);
 
    PyClass_t *cls = (PyClass_t*)malloc(sizeof(PyClass_t));
    cls->vtable = &vtable_class;
    cls->itable = (vtable_t*)malloc(sizeof(vtable_t));
    cls->itable->rtti = 0;
+   cls->values = values;
    for(int i=0; i < 100; i++){
       cls->itable->dispatch[i] = &global_noimp;
    }
 
+   printf("Locals: %p\n", values);
+   for(int i=0; i < values->sz; i++){
+      printf("L: %p %p\n", values->objs[i], values->objs[i]->vtable);
+      dump(values->objs[i]);
+
+      PyStr_t *str = (PyStr_t*)constructor->code->locals->objs[i];
+      dump(str);
+      const SlotResult *res = in_word_set(str->str,str->sz-1);
+      if(res){
+         printf("L: %d\n", res->slot_num);
+         cls->itable->dispatch[res->slot_num] = values->objs[i];
+      }
+   }
 
 
-   cls->itable->dispatch[CALL_SLOT] = v1[2];
+   cls->itable->dispatch[CALL_SLOT] = &pyfunc_builtin_new;
 
-   PyFunc_t *bound_func = (PyFunc_t*)malloc(sizeof(PyFunc_t));
-   *bound_func = *(PyFunc_t*)(v1[2]);
 
    cls->name = (PyStr_t*)v1[1];
-   cls->constructor = bound_func;
-   cls->locals_func = bound_func->code->locals_func;
-   cls->locals = bound_func->code->locals;
-   bound_func->cls = cls;
+   cls->constructor = constructor;
+   cls->locals_func = constructor->code->locals_func;
+   cls->locals = constructor->code->locals;
 
    assert(cls->locals_func);
    assert(cls->locals);
@@ -649,7 +644,6 @@ PyObject_t* builtin_buildclass(PyObject_t **v1, uint64_t alen, PyTuple_t **v2){
 PyObject_t* code_blob_0(PyObject_t **, uint64_t, PyObject_t*);
 
 int main(){
-   malloc_pos=0;
    code_blob_0(0,0,0);
    return 0;
 }

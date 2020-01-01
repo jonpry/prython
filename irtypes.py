@@ -78,7 +78,7 @@ ppyclass_type = pyclass_type.as_pointer()
 
 pyfunc_type.set_body(pyobj_type, ppycode_type, ppystr_type, make_tuple_type(0)[1], ppyclass_type)
 
-pyclass_type.set_body(pyobj_type, make_str_type(0)[1] ,ppyfunc_type,lfnty.as_pointer(), make_tuple_type(0)[1])
+pyclass_type.set_body(pyobj_type, make_str_type(0)[1] ,ppyfunc_type,lfnty.as_pointer(), make_tuple_type(0)[1], make_tuple_type(0)[1])
 
 pybool_type = ir.global_context.get_identified_type("PyBool")
 pybool_type.set_body(pyobj_type, int64)
