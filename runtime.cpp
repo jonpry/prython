@@ -27,7 +27,7 @@ typedef struct {
   pyobj *dispatch[100]; //TODO: this has to be right, hard to sync with dump.py
 } vtable_t;
 
-extern const vtable_t vtable_int, vtable_float, vtable_str, vtable_code, vtable_tuple, vtable_func, vtable_class, vtable_bool, vtable_NotImplemented;
+extern const vtable_t vtable_int, vtable_float, vtable_str, vtable_code, vtable_tuple, vtable_func, vtable_class, vtable_bool, vtable_NotImplemented, vtable_object;
 
 typedef class pyobj {
 public:
@@ -95,6 +95,10 @@ public:
   PyTuple_t *values;
 } PyClass_t;
 
+typedef class pybase : public pyobj {
+public:
+} PyBase_t;
+
 extern PyNoImp_t global_noimp;
 extern PyBool_t global_false, global_true;
 extern PyFunc_t pyfunc_builtin_print_wrap, pyfunc_builtin_str, 
@@ -102,7 +106,8 @@ extern PyFunc_t pyfunc_builtin_print_wrap, pyfunc_builtin_str,
                 pyfunc_builtin_setattr, pyfunc_builtin_buildclass,
                 pyfunc_builtin_new;
 
-const char *rtti_strings[] = {"int", "float", "tuple", "str", "code", "func", "class", "bool", "NotImplemented"};
+const char *rtti_strings[] = {"int", "float", "tuple", "str", "code", "func", "class", "bool", "NotImplemented","exception","list","dict","object"};
+
 
 #undef malloc
 void* malloc(size_t) __attribute__((returns_nonnull));
@@ -123,7 +128,7 @@ __attribute__((noinline)) void dump(const PyObject_t *v){
       return;
    }
 
-   printf("RTTI: %lx %s\n", v->vtable->rtti, rtti_strings[__builtin_ffsll(v->vtable->rtti)]);
+   printf("RTTI: %lx %s\n", v->vtable->rtti, rtti_strings[__builtin_ffsll(v->vtable->rtti)-1]);
 
    switch(v->vtable->rtti){
       case INT_RTTI: {
@@ -152,14 +157,21 @@ PyObject_t* builtin_getattr(PyObject_t **v1, uint64_t alen, const PyTuple_t **v2
    dump(v1[1]);
 
    PyStr_t* attr = (PyStr_t*)v1[0];
+   PyObject_t *obj = (PyObject_t*)v1[1];
    //TODO: assert is string
    const SlotResult *res = in_word_set(attr->str,attr->sz-1);
    if(res){
        printf("Slot is %d\n", res->slot_num);
-       if(v1[1]->itable && v1[1]->itable->dispatch[res->slot_num]->vtable->rtti != NOIMP_RTTI)
-          return v1[1]->itable->dispatch[res->slot_num]; 
-       return v1[1]->vtable->dispatch[res->slot_num]; 
+       if(obj->itable && obj->itable->dispatch[res->slot_num]->vtable->rtti != NOIMP_RTTI)
+          return obj->itable->dispatch[res->slot_num]; 
+       return obj->vtable->dispatch[res->slot_num]; 
    }else{
+       if(obj->vtable->rtti == CLASS_RTTI){
+          PyClass_t *cls = (PyClass_t*)obj;
+          int res = cls->locals_func(attr);
+          if(res >= 0 && cls->values->objs[res]->vtable->rtti != NOIMP_RTTI)
+             return cls->values->objs[res];
+       }
        printf("No slot: %s %lu\n", attr->str, attr->sz);
        THROW()       
    }
@@ -173,6 +185,7 @@ PyObject_t* builtin_setattr(PyObject_t **v1, uint64_t alen, const PyTuple_t **v2
    dump(v1[1]);
    dump(v1[2]);
 
+   PyObject_t *obj = (PyObject_t*)v1[0];
    PyStr_t* attr = (PyStr_t*)v1[1];
    //TODO: assert is string
    const SlotResult *res = in_word_set(attr->str,attr->sz-1);
@@ -184,6 +197,14 @@ PyObject_t* builtin_setattr(PyObject_t **v1, uint64_t alen, const PyTuple_t **v2
        }
        v1[0]->itable->dispatch[res->slot_num] = v1[2];
    }else{
+       if(obj->vtable->rtti == CLASS_RTTI){
+          PyClass_t *cls = (PyClass_t*)obj;
+          int res = cls->locals_func(attr);
+          if(res >= 0 && cls->values->objs[res]->vtable->rtti != NOIMP_RTTI){
+             cls->values->objs[res] = v1[2];
+             return v1[0];
+          }
+       }
        printf("No slot: %s %lu\n", attr->str, attr->sz);
        THROW()       
    }
@@ -237,10 +258,11 @@ __attribute__((always_inline)) PyObject_t* load_name(PyObject_t *v1, PyObject_t*
 
 
 __attribute__((always_inline)) PyObject_t* call_function(PyObject_t **v1, uint64_t alen, PyTuple_t** v2){
-    PyObject_t *tgt = (PyObject_t*)v1[alen-1];
+    PyObject_t *tgt = (PyObject_t*)v1[0];
     if(tgt->vtable->rtti == FUNC_RTTI){
        PyFunc_t *func = (PyFunc_t*)tgt;
-       return func->code->func(v1, alen-1, 0);
+       printf("Call via direct\n");
+       return func->code->func(v1+1, alen-1, 0);
     }
     if(tgt->vtable->dispatch[CALL_SLOT] && tgt->vtable->dispatch[CALL_SLOT]->vtable->rtti != NOIMP_RTTI){
        printf("Can call via vtable\n");
@@ -250,7 +272,8 @@ __attribute__((always_inline)) PyObject_t* call_function(PyObject_t **v1, uint64
        printf("Can call via itable\n");
        assert(tgt->itable->dispatch[CALL_SLOT]->vtable->rtti == FUNC_RTTI);
        PyTuple_t *locals = 0;
-       PyObject_t *ret = ((PyFunc_t*)tgt->itable->dispatch[CALL_SLOT])->code->func(v1,alen-1,&locals);
+       //Instance attributes get self
+       PyObject_t *ret = ((PyFunc_t*)tgt->itable->dispatch[CALL_SLOT])->code->func(v1,alen,&locals);
        printf("Locals: %p\n", locals);
        for(int i=0; i < 5; i++){
           printf("L: %p %p\n", locals->objs[i], locals->objs[i]->vtable);
@@ -321,15 +344,43 @@ __attribute__((always_inline)) uint32_t hash_fnv(uint32_t d, PyStr_t *v){
        d = 0x01000193;
 
     // Use the FNV algorithm from http://isthe.com/chongo/tech/comp/fnv/ 
-    for(uint32_t i=0; i < v->sz; i++)
-        d = ( (d * 0x01000193) ^ v->str[i]) & 0xffffffff;
+    for(uint32_t i=0; i < v->sz-1; i++)
+        d = ( (d ^ v->str[i]) * 0x01000193) & 0xffffffff;
 
     return d;
 }
 
-__attribute__((always_inline)) int32_t local_lookup(PyTuple_t *t, uint32_t *g, uint32_t *v){
-    //TODO:
-    return 0;
+__attribute__((always_inline)) int32_t local_lookup(PyStr_t* str, PyTuple_t *t, int32_t *g, int32_t *v, uint32_t len){
+    printf("LF\n");
+    dump(str);
+
+    int d = g[hash_fnv(0,str) % len];
+/*
+    printf("d: %d %d %d %d\n", d, hash_fnv(0,str), len, hash_fnv(0,str) % len);
+    for(int i=0; i < len; i++){
+       printf("%d ", g[i]);
+    }
+    printf("\n");
+
+    for(int i=0; i < len; i++){
+       printf("%d ", v[i]);
+    }
+    printf("\n");
+*/
+    int slot=0;
+    if(d < 0){
+      slot = v[-d-1];
+    }else{
+      slot = v[hash_fnv(d,str) % len];
+    }
+    
+    //for(int i=0; i < t->sz; i++)
+    //  dump(t->objs[i]);
+    PyStr_t *c=(PyStr_t*)t->objs[slot];
+    if(strcmp(c->str,str->str)==0)
+       return slot;
+    dump(c);
+    return -1;
 }
 
 
@@ -585,7 +636,23 @@ __attribute__((always_inline)) PyObject_t* str_add(PyObject_t **v1, uint64_t ale
 }
 
 PyObject_t* builtin_new(PyObject_t **v1, uint64_t alen, PyTuple_t **v2){
-   printf("new\n");
+   printf("new %lu, %p\n", alen, v1[0]);
+   dump(v1[0]);
+
+   PyClass_t *cls = (PyClass_t*)v1[0];
+
+   PyBase_t *obj = (PyBase_t*)malloc(sizeof(PyBase_t));
+   obj->vtable = &vtable_object;
+   obj->itable = cls->itable;
+
+   dump(obj->itable->dispatch[INIT_SLOT]);
+
+   PyObject_t *args[alen];
+   args[0] = obj;
+   for(int i=1; i < alen; i++)
+     args[i] = v1[i];
+
+   ((PyFunc_t*)obj->itable->dispatch[INIT_SLOT])->code->func(args,alen,0);
    exit(0);
 
 /*

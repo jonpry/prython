@@ -19,7 +19,7 @@ om = ["float","str",
                  "await","aiter","anext","aenter","aexit",
                  ];
 
-sl = ["int", "float", "tuple", "str", "code", "func", "class", "bool", "noimp", "exception", "list", "dict"]
+sl = ["int", "float", "tuple", "str", "code", "func", "class", "bool", "noimp", "exception", "list", "dict", "object"]
 
 
 gperf.write("""%{

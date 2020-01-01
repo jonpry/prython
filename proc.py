@@ -122,7 +122,8 @@ integrals = {"int" : { "mul" , "add", "xor", "or", "and", "radd", "mod", "floord
              "NotImplemented" : {},
              "exception" : {},
              "list" : { "str", }, 
-             "dict" : {}}
+             "dict" : {}, 
+             "object" : {}}
 
 vtable_map = {}
 table_map = {}
@@ -165,7 +166,7 @@ import_name = ir.Function(module, import_name_type, name="import_name")
 load_name_type = ir.FunctionType(ppyobj_type, (ppyobj_type, ppyobj_type))
 load_name = ir.Function(module, load_name_type, name="load_name")
 
-local_lookup_type = ir.FunctionType(int32, (make_tuple_type(0)[1], ir.ArrayType(int32,0).as_pointer(),ir.ArrayType(int32,0).as_pointer()))
+local_lookup_type = ir.FunctionType(int32, (make_str_type(0)[1], make_tuple_type(0)[1], ir.ArrayType(int32,0).as_pointer(),ir.ArrayType(int32,0).as_pointer(), int32))
 local_lookup = ir.Function(module, local_lookup_type, name="local_lookup")
 
 builtin_print = ir.Function(module, fnty, name="builtin_print")
@@ -361,12 +362,13 @@ for c in codes:
    builder = ir.IRBuilder(block)
 
    g,v = emph.CreateMinimalPerfectHash({c.co_names[i]:i for i in range(len(c.co_names))})
+   l = len(g)
    g = builder.bitcast(get_int_array(g),ir.ArrayType(int32,0).as_pointer())
    v = builder.bitcast(get_int_array(v),ir.ArrayType(int32,0).as_pointer())
    strs = builder.bitcast(get_constant(c.co_names),make_tuple_type(0)[1])
 
    
-   builder.ret(builder.call(local_lookup,(strs,g,v)))
+   builder.ret(builder.call(local_lookup,(func.args[0],strs,g,v,int32(l))))
    table_map[c] = func
    i+=1
 
@@ -551,11 +553,11 @@ for c in codes:
             stack_ptr-=1
          builder.store(builder.bitcast(obj,ppyobj_type),stack[stack_ptr])
          stack_ptr+=1
-       elif ins.opname=='CALL_FUNCTION': #TODO
+       elif ins.opname=='CALL_FUNCTION': 
          savestack = builder.call(stacksave,[])
          args = builder.alloca(ppyobj_type,ins.arg+1)
          for i in range(ins.arg): 
-            builder.store(builder.load(stack[stack_ptr-1]),builder.gep(args,(int32(i),)))
+            builder.store(builder.load(stack[stack_ptr-1]),builder.gep(args,(int32(i+1),))) #TODO: i think args are reversed
             stack_ptr-=1
          #debug(builder,"post store " + str(ins.offset))
 
@@ -564,7 +566,7 @@ for c in codes:
 
          #debug(builder,"deref " + str(ins.offset))
 
-         builder.store(tgt,builder.gep(args,(int32(ins.arg),)))
+         builder.store(tgt,builder.gep(args,(int32(0),)))
 
          if len(except_stack):
             newblock,builder,rval = invoke(func,builder,call_function,(args,int64(ins.arg+1),pppytuple_type(None)))
