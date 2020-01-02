@@ -6,6 +6,7 @@
 #include <math.h>
 #include <assert.h>
 #include <exception>
+#include <unordered_map>
 
 extern "C" {
 
@@ -97,6 +98,8 @@ public:
 
 typedef class pybase : public pyobj {
 public:
+   PyClass_t *cls;
+   std::unordered_map<std::string,PyObject_t*> *attrs;
 } PyBase_t;
 
 extern PyNoImp_t global_noimp;
@@ -156,8 +159,8 @@ PyObject_t* builtin_getattr(PyObject_t **v1, uint64_t alen, const PyTuple_t **v2
    dump(v1[0]);
    dump(v1[1]);
 
-   PyStr_t* attr = (PyStr_t*)v1[0];
-   PyObject_t *obj = (PyObject_t*)v1[1];
+   PyStr_t* attr = (PyStr_t*)v1[1];
+   PyObject_t *obj = (PyObject_t*)v1[0];
    //TODO: assert is string
    const SlotResult *res = in_word_set(attr->str,attr->sz-1);
    if(res){
@@ -171,6 +174,10 @@ PyObject_t* builtin_getattr(PyObject_t **v1, uint64_t alen, const PyTuple_t **v2
           int res = cls->locals_func(attr);
           if(res >= 0 && cls->values->objs[res]->vtable->rtti != NOIMP_RTTI)
              return cls->values->objs[res];
+       }
+       if(obj->vtable->rtti == OBJECT_RTTI){
+          PyBase_t *base = (PyBase_t*)obj;
+          return (*base->attrs)[attr->str];
        }
        printf("No slot: %s %lu\n", attr->str, attr->sz);
        THROW()       
@@ -202,14 +209,20 @@ PyObject_t* builtin_setattr(PyObject_t **v1, uint64_t alen, const PyTuple_t **v2
           int res = cls->locals_func(attr);
           if(res >= 0 && cls->values->objs[res]->vtable->rtti != NOIMP_RTTI){
              cls->values->objs[res] = v1[2];
-             return v1[0];
+             return obj;
           }
        }
-       printf("No slot: %s %lu\n", attr->str, attr->sz);
+       if(obj->vtable->rtti == OBJECT_RTTI){
+          printf("obj setattr\n");
+          PyBase_t *base = (PyBase_t*)obj;
+          (*base->attrs)[attr->str] = v1[2];
+          return obj;
+       }
+       printf("SA no slot: %s %lu\n", attr->str, attr->sz);
        THROW()       
    }
 
-   return v1[0];
+   return obj;
 }
 
 __attribute__((noinline)) PyObject_t* builtin_print(PyObject_t ** pv1, 
@@ -229,7 +242,7 @@ __attribute__((noinline)) PyObject_t* builtin_print(PyObject_t ** pv1,
 __attribute__((always_inline)) PyObject_t* load_name(PyObject_t *v1, PyObject_t* v2){
    printf("LN\n"); 
    dump(v2);
-   if(v1->vtable->rtti == NOIMP_RTTI){
+   if(!v1 || v1->vtable->rtti == NOIMP_RTTI){
       PyStr_t *str=(PyStr_t*)v2;
       //TODO: use mph
       if(strcmp(str->str,"print") == 0)
@@ -271,13 +284,8 @@ __attribute__((always_inline)) PyObject_t* call_function(PyObject_t **v1, uint64
     if(tgt->itable->dispatch[CALL_SLOT] && tgt->itable->dispatch[CALL_SLOT]->vtable->rtti != NOIMP_RTTI){
        printf("Can call via itable\n");
        assert(tgt->itable->dispatch[CALL_SLOT]->vtable->rtti == FUNC_RTTI);
-       PyTuple_t *locals = 0;
        //Instance attributes get self
-       PyObject_t *ret = ((PyFunc_t*)tgt->itable->dispatch[CALL_SLOT])->code->func(v1,alen,&locals);
-       printf("Locals: %p\n", locals);
-       for(int i=0; i < 5; i++){
-          printf("L: %p %p\n", locals->objs[i], locals->objs[i]->vtable);
-       }
+       PyObject_t *ret = ((PyFunc_t*)tgt->itable->dispatch[CALL_SLOT])->code->func(v1,alen,0);
        return ret;
     }
 
@@ -644,6 +652,7 @@ PyObject_t* builtin_new(PyObject_t **v1, uint64_t alen, PyTuple_t **v2){
    PyBase_t *obj = (PyBase_t*)malloc(sizeof(PyBase_t));
    obj->vtable = &vtable_object;
    obj->itable = cls->itable;
+   obj->attrs = new std::unordered_map<std::string,PyObject_t*>();
 
    dump(obj->itable->dispatch[INIT_SLOT]);
 
@@ -653,8 +662,8 @@ PyObject_t* builtin_new(PyObject_t **v1, uint64_t alen, PyTuple_t **v2){
      args[i] = v1[i];
 
    ((PyFunc_t*)obj->itable->dispatch[INIT_SLOT])->code->func(args,alen,0);
-   exit(0);
 
+   return obj;
 /*
    PyFunc_t *bound_func = (PyFunc_t*)malloc(sizeof(PyFunc_t));
    *bound_func = *(PyFunc_t*)(v1[2]);
@@ -664,10 +673,11 @@ PyObject_t* builtin_new(PyObject_t **v1, uint64_t alen, PyTuple_t **v2){
 PyObject_t* builtin_buildclass(PyObject_t **v1, uint64_t alen, PyTuple_t **v2){
    printf("Buildclass\n");
    printf("%p %p %p\n", v1[0], v1[1], v1[2]);
+   dump(v1[0]);
    dump(v1[1]);
    dump(v1[2]);
 
-   PyFunc_t *constructor = (PyFunc_t*)(v1[2]);
+   PyFunc_t *constructor = (PyFunc_t*)(v1[0]);
    PyTuple_t *values=0;
    constructor->code->func(0,0,&values);
 

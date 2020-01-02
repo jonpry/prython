@@ -353,7 +353,7 @@ for c in codes:
    #personality i8* bitcast (i32 (...)* @__gxx_personality_v0 to i8*)
    func_map[c] = func
 
-   #build tables
+   #build tableslo
    func = ir.Function(module, lfnty, name="code_blob_" + str(i) + "_locals")
    func.attributes.personality = pers
    func.attributes.add("alwaysinline")
@@ -510,7 +510,8 @@ for c in codes:
          stack_ptr+=1
        elif ins.opname=='LOAD_GLOBAL': #TODO
          v = stack[stack_ptr]
-         builder.store(ir.Constant(ppyobj_type,None),v)
+         tbl = builder.call(load_name, (ppyobj_type(None),builder.bitcast(get_constant(ins.argval),ppyobj_type)))
+         builder.store(tbl,v)
          stack_ptr+=1
        elif ins.opname=='STORE_FAST' or ins.opname=="STORE_NAME":
          v = builder.load(stack[stack_ptr-1])
@@ -557,7 +558,7 @@ for c in codes:
          savestack = builder.call(stacksave,[])
          args = builder.alloca(ppyobj_type,ins.arg+1)
          for i in range(ins.arg): 
-            builder.store(builder.load(stack[stack_ptr-1]),builder.gep(args,(int32(i+1),))) #TODO: i think args are reversed
+            builder.store(builder.load(stack[stack_ptr-1]),builder.gep(args,(int32(ins.arg - i),))) #TODO: i think args are reversed
             stack_ptr-=1
          #debug(builder,"post store " + str(ins.offset))
 
@@ -639,8 +640,8 @@ for c in codes:
          v = stack[stack_ptr]
 
          args = builder.alloca(ppyobj_type,2)
-         builder.store(v1,builder.gep(args,(int32(1),)))
-         builder.store(v2,builder.gep(args,(int32(0),)))
+         builder.store(v1,builder.gep(args,(int32(0),)))
+         builder.store(v2,builder.gep(args,(int32(1),)))
 
          if len(except_stack):
             newblock,builder,rval = invoke(func,builder,builtin_getattr,(args,int64(2),ppyobj_type(None)))
@@ -658,8 +659,8 @@ for c in codes:
          v3 = builder.bitcast(get_constant(ins.argval),ppyobj_type)
 
          args = builder.alloca(ppyobj_type,3)
-         builder.store(v1,builder.gep(args,(int32(2),)))
-         builder.store(v2,builder.gep(args,(int32(0),)))
+         builder.store(v1,builder.gep(args,(int32(0),)))
+         builder.store(v2,builder.gep(args,(int32(2),)))
          builder.store(v3,builder.gep(args,(int32(1),)))
 
          if len(except_stack):
