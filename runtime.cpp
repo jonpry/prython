@@ -14,6 +14,12 @@ extern "C" {
 #include "get_slot.cpp"
 #include "slots.h"
 
+#ifdef DEBUG
+#define dprintf(...) printf(__VA_ARGS__)
+#else
+#define dprintf(...)
+#endif
+
 class pyobj;
 class pyfunc;
 class pystr;
@@ -147,7 +153,7 @@ __attribute__((noinline)) void dump(const PyObject_t *v){
 }
 
 PyObject_t* import_name(PyObject_t *v1, PyObject_t *v2, PyObject_t *v3){
-   printf("Import name %p %p %p\n", v1, v2, v3);
+   dprintf("Import name %p %p %p\n", v1, v2, v3);
    dump(v1);
    dump(v2);
    dump(v3);
@@ -155,7 +161,7 @@ PyObject_t* import_name(PyObject_t *v1, PyObject_t *v2, PyObject_t *v3){
 }
 
 PyObject_t* builtin_getattr(PyObject_t **v1, uint64_t alen, const PyTuple_t **v2){
-   printf("Load attr %p %p\n", v1[0], v1[1]);
+   dprintf("Load attr %p %p\n", v1[0], v1[1]);
    dump(v1[0]);
    dump(v1[1]);
 
@@ -164,7 +170,7 @@ PyObject_t* builtin_getattr(PyObject_t **v1, uint64_t alen, const PyTuple_t **v2
    //TODO: assert is string
    const SlotResult *res = in_word_set(attr->str,attr->sz-1);
    if(res){
-       printf("Slot is %d\n", res->slot_num);
+       dprintf("Slot is %d\n", res->slot_num);
        if(obj->itable && obj->itable->dispatch[res->slot_num]->vtable->rtti != NOIMP_RTTI)
           return obj->itable->dispatch[res->slot_num]; 
        return obj->vtable->dispatch[res->slot_num]; 
@@ -177,7 +183,16 @@ PyObject_t* builtin_getattr(PyObject_t **v1, uint64_t alen, const PyTuple_t **v2
        }
        if(obj->vtable->rtti == OBJECT_RTTI){
           PyBase_t *base = (PyBase_t*)obj;
-          return (*base->attrs)[attr->str];
+          auto it = base->attrs->find(attr->str);
+          if(it != base->attrs->end())
+             return (*it).second; 
+
+          PyClass_t *cls = base->cls;
+          int res = cls->locals_func(attr);
+          printf("R: %d\n", res);
+          if(res >= 0 && cls->values->objs[res]->vtable->rtti != NOIMP_RTTI){
+             return cls->values->objs[res];
+          }
        }
        printf("No slot: %s %lu\n", attr->str, attr->sz);
        THROW()       
@@ -197,7 +212,7 @@ PyObject_t* builtin_setattr(PyObject_t **v1, uint64_t alen, const PyTuple_t **v2
    //TODO: assert is string
    const SlotResult *res = in_word_set(attr->str,attr->sz-1);
    if(res){
-       printf("Slot is %d\n", res->slot_num);
+       dprintf("Slot is %d\n", res->slot_num);
        if(!v1[0]->itable){
            printf("Attribute is readonly\n");
            THROW()
@@ -213,7 +228,7 @@ PyObject_t* builtin_setattr(PyObject_t **v1, uint64_t alen, const PyTuple_t **v2
           }
        }
        if(obj->vtable->rtti == OBJECT_RTTI){
-          printf("obj setattr\n");
+          dprintf("obj setattr\n");
           PyBase_t *base = (PyBase_t*)obj;
           (*base->attrs)[attr->str] = v1[2];
           return obj;
@@ -240,7 +255,7 @@ __attribute__((noinline)) PyObject_t* builtin_print(PyObject_t ** pv1,
 }
 
 __attribute__((always_inline)) PyObject_t* load_name(PyObject_t *v1, PyObject_t* v2){
-   printf("LN\n"); 
+   dprintf("LN\n"); 
    dump(v2);
    if(!v1 || v1->vtable->rtti == NOIMP_RTTI){
       PyStr_t *str=(PyStr_t*)v2;
@@ -274,15 +289,15 @@ __attribute__((always_inline)) PyObject_t* call_function(PyObject_t **v1, uint64
     PyObject_t *tgt = (PyObject_t*)v1[0];
     if(tgt->vtable->rtti == FUNC_RTTI){
        PyFunc_t *func = (PyFunc_t*)tgt;
-       printf("Call via direct\n");
+       dprintf("Call via direct\n");
        return func->code->func(v1+1, alen-1, 0);
     }
     if(tgt->vtable->dispatch[CALL_SLOT] && tgt->vtable->dispatch[CALL_SLOT]->vtable->rtti != NOIMP_RTTI){
-       printf("Can call via vtable\n");
+       dprintf("Can call via vtable\n");
     }
 
     if(tgt->itable->dispatch[CALL_SLOT] && tgt->itable->dispatch[CALL_SLOT]->vtable->rtti != NOIMP_RTTI){
-       printf("Can call via itable\n");
+       dprintf("Can call via itable\n");
        assert(tgt->itable->dispatch[CALL_SLOT]->vtable->rtti == FUNC_RTTI);
        //Instance attributes get self
        PyObject_t *ret = ((PyFunc_t*)tgt->itable->dispatch[CALL_SLOT])->code->func(v1,alen,0);
@@ -359,8 +374,8 @@ __attribute__((always_inline)) uint32_t hash_fnv(uint32_t d, PyStr_t *v){
 }
 
 __attribute__((always_inline)) int32_t local_lookup(PyStr_t* str, PyTuple_t *t, int32_t *g, int32_t *v, uint32_t len){
-    printf("LF\n");
-    dump(str);
+    dprintf("LF\n");
+    //dump(str);
 
     int d = g[hash_fnv(0,str) % len];
 /*
@@ -644,7 +659,7 @@ __attribute__((always_inline)) PyObject_t* str_add(PyObject_t **v1, uint64_t ale
 }
 
 PyObject_t* builtin_new(PyObject_t **v1, uint64_t alen, PyTuple_t **v2){
-   printf("new %lu, %p\n", alen, v1[0]);
+   dprintf("new %lu, %p\n", alen, v1[0]);
    dump(v1[0]);
 
    PyClass_t *cls = (PyClass_t*)v1[0];
@@ -652,6 +667,7 @@ PyObject_t* builtin_new(PyObject_t **v1, uint64_t alen, PyTuple_t **v2){
    PyBase_t *obj = (PyBase_t*)malloc(sizeof(PyBase_t));
    obj->vtable = &vtable_object;
    obj->itable = cls->itable;
+   obj->cls = cls;
    obj->attrs = new std::unordered_map<std::string,PyObject_t*>();
 
    dump(obj->itable->dispatch[INIT_SLOT]);
@@ -671,8 +687,8 @@ PyObject_t* builtin_new(PyObject_t **v1, uint64_t alen, PyTuple_t **v2){
 }
 
 PyObject_t* builtin_buildclass(PyObject_t **v1, uint64_t alen, PyTuple_t **v2){
-   printf("Buildclass\n");
-   printf("%p %p %p\n", v1[0], v1[1], v1[2]);
+   dprintf("Buildclass\n");
+   dprintf("%p %p %p\n", v1[0], v1[1], v1[2]);
    dump(v1[0]);
    dump(v1[1]);
    dump(v1[2]);
@@ -690,16 +706,16 @@ PyObject_t* builtin_buildclass(PyObject_t **v1, uint64_t alen, PyTuple_t **v2){
       cls->itable->dispatch[i] = &global_noimp;
    }
 
-   printf("Locals: %p\n", values);
+   dprintf("Locals: %p\n", values);
    for(int i=0; i < values->sz; i++){
-      printf("L: %p %p\n", values->objs[i], values->objs[i]->vtable);
-      dump(values->objs[i]);
+      dprintf("L: %p %p\n", values->objs[i], values->objs[i]->vtable);
+      //dump(values->objs[i]);
 
       PyStr_t *str = (PyStr_t*)constructor->code->locals->objs[i];
       dump(str);
       const SlotResult *res = in_word_set(str->str,str->sz-1);
       if(res){
-         printf("L: %d\n", res->slot_num);
+         dprintf("L: %d\n", res->slot_num);
          cls->itable->dispatch[res->slot_num] = values->objs[i];
       }
    }
