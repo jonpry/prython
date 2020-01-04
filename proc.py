@@ -114,7 +114,7 @@ integrals = {"int" : { "mul" , "add", "xor", "or", "and", "radd", "mod", "floord
              "float" : { "mul", "add", "sub", "pow", "radd", "rmul", "rsub", "rpow", "mod", "truediv", "rmod", "rtruediv",
                          "floordiv", "rfloordiv", "str"},
              "tuple" : { "str", "getitem" }, 
-             "str" : { "add", "str", "getitem"}, 
+             "str" : { "add", "str", "getitem", "hash"}, 
              "code" : {}, 
              "func" : { "str"}, 
              "class" : {}, 
@@ -122,7 +122,7 @@ integrals = {"int" : { "mul" , "add", "xor", "or", "and", "radd", "mod", "floord
              "NotImplemented" : {},
              "exception" : {},
              "list" : { "str", }, 
-             "dict" : {}, 
+             "dict" : { "getitem"}, 
              "object" : {}}
 
 vtable_map = {}
@@ -166,6 +166,9 @@ import_name = ir.Function(module, import_name_type, name="import_name")
 load_name_type = ir.FunctionType(ppyobj_type, (ppyobj_type, ppyobj_type))
 load_name = ir.Function(module, load_name_type, name="load_name")
 
+store_subscr_type = ir.FunctionType(ppyobj_type, (ppyobj_type, ppyobj_type, ppyobj_type))
+store_subscr = ir.Function(module, store_subscr_type, name="store_subscr")
+
 local_lookup_type = ir.FunctionType(int32, (make_str_type(0)[1], make_tuple_type(0)[1], ir.ArrayType(int32,0).as_pointer(),ir.ArrayType(int32,0).as_pointer(), int32))
 local_lookup = ir.Function(module, local_lookup_type, name="local_lookup")
 
@@ -187,6 +190,8 @@ builtin_getattr.attributes.add("uwtable")
 builtin_setattr = ir.Function(module, fnty, name="builtin_setattr")
 builtin_setattr.attributes.add("uwtable")
 
+build_map_type = ir.FunctionType(ppyobj_type,(pppyobj_type,int32))
+build_map = ir.Function(module, build_map_type, name="build_map")
 
 begin_catch_type = ir.FunctionType(ir.VoidType(), [])
 begin_catch = ir.Function(module, begin_catch_type, "__cxa_begin_catch")
@@ -554,6 +559,20 @@ for c in codes:
             stack_ptr-=1
          builder.store(builder.bitcast(obj,ppyobj_type),stack[stack_ptr])
          stack_ptr+=1
+       elif ins.opname=='BUILD_MAP':
+         savestack = builder.call(stacksave,[])
+         args = builder.alloca(ppyobj_type,ins.arg*2)
+
+         for de in range(ins.arg*2):
+            builder.store(builder.load(stack[stack_ptr-1]),builder.gep(args,(int32(de),)))
+            stack_ptr-=1
+
+         obj = builder.call(build_map,(args,int32(ins.arg)))
+
+         builder.store(obj,stack[stack_ptr])
+         stack_ptr+=1
+         builder.call(stackrestore,[savestack])
+
        elif ins.opname=='CALL_FUNCTION': 
          savestack = builder.call(stacksave,[])
          args = builder.alloca(ppyobj_type,ins.arg+1)
@@ -648,10 +667,11 @@ for c in codes:
             replace_block(ins,block_idx,newblock,builder)
             builder.store(rval,stack[stack_ptr])
          else:
-            builder.store(builder.call(builtin_getattr,(args,int64(2),pppytuple_type(None))),stack[stack_ptr])
+            rval = builder.call(builtin_getattr,(args,int64(2),pppytuple_type(None)))
 
+         builder.store(rval,stack[stack_ptr])
          stack_ptr+=1
-       elif ins.opname=='STORE_ATTR': #TODO:
+       elif ins.opname=='STORE_ATTR': 
          v1 = builder.load(stack[stack_ptr-1])
          stack_ptr-=1
          v2 = builder.load(stack[stack_ptr-1])
@@ -668,6 +688,19 @@ for c in codes:
             replace_block(ins,block_idx,newblock,builder)
          else:
             builder.call(builtin_setattr,(args,int64(3),pppytuple_type(None)))
+       elif ins.opname=='STORE_SUBSCR': 
+         v1 = builder.load(stack[stack_ptr-1])
+         stack_ptr-=1
+         v2 = builder.load(stack[stack_ptr-1])
+         stack_ptr-=1
+         v3 = builder.load(stack[stack_ptr-1])
+         stack_ptr-=1
+
+         if len(except_stack):
+            newblock,builder,rval = invoke(func,builder,store_subscr,(v1,v2,v3))
+            replace_block(ins,block_idx,newblock,builder)
+         else:
+            rval = builder.call(store_subscr,(v1,v2,v3))
 
        elif ins.opname=='LOAD_BUILD_CLASS': #TODO
          v = stack[stack_ptr]

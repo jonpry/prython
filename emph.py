@@ -22,7 +22,7 @@ def hash( d, str ):
 
     # Use the FNV algorithm from http://isthe.com/chongo/tech/comp/fnv/ 
     for c in str:
-        d = ( (d ^ ord(c)) * 0x01000193) & 0xffffffff;
+        d = ( (d ^ ord(c)) * 0x01000193) & 0xffffffffffffffff;
 
     return d
 

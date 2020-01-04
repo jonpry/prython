@@ -9,6 +9,23 @@
 #include <unordered_map>
 
 extern "C" {
+class pyobj;
+
+size_t pyobj_hash(pyobj*);
+}
+
+// custom specialization of std::hash can be injected in namespace std
+namespace std
+{
+    template<> struct hash<pyobj*>
+    {
+      std::size_t operator()(pyobj* o) const noexcept {
+          return pyobj_hash(o);
+      }
+    };
+}       
+
+extern "C" {
 
 #define register 
 #include "get_slot.cpp"
@@ -34,7 +51,7 @@ typedef struct {
   pyobj *dispatch[100]; //TODO: this has to be right, hard to sync with dump.py
 } vtable_t;
 
-extern const vtable_t vtable_int, vtable_float, vtable_str, vtable_code, vtable_tuple, vtable_func, vtable_class, vtable_bool, vtable_NotImplemented, vtable_object;
+extern const vtable_t vtable_int, vtable_float, vtable_str, vtable_code, vtable_tuple, vtable_func, vtable_class, vtable_bool, vtable_NotImplemented, vtable_object, vtable_dict;
 
 typedef class pyobj {
 public:
@@ -108,6 +125,11 @@ public:
    std::unordered_map<std::string,PyObject_t*> *attrs;
 } PyBase_t;
 
+typedef class pydict : public pyobj {
+public:
+   std::unordered_map<PyObject_t*,PyObject_t*> *elems;
+} PyDict_t;
+
 extern PyNoImp_t global_noimp;
 extern PyBool_t global_false, global_true;
 extern PyFunc_t pyfunc_builtin_print_wrap, pyfunc_builtin_str, 
@@ -159,6 +181,30 @@ PyObject_t* import_name(PyObject_t *v1, PyObject_t *v2, PyObject_t *v3){
    dump(v3);
    return 0;
 }
+
+__attribute__((always_inline)) PyObject_t* unop(PyObject_t *v1, uint32_t slot);
+size_t pyobj_hash(pyobj* o){
+   PyInt_t *i = (PyInt_t*)unop(o,HASH_SLOT);
+   return i->val;
+}
+
+
+__attribute__((always_inline)) PyObject_t* build_map(PyObject_t **v, uint32_t len){ 
+   PyDict_t *d = (PyDict_t*)malloc(sizeof(PyDict_t));
+   d->vtable = &vtable_dict;
+   d->elems = new std::unordered_map<PyObject_t*,PyObject_t*>();
+   for(uint32_t i=0; i < len; i++){
+      (*d->elems)[v[i*2+1]] = v[i*2];
+   }
+   return d;
+}
+
+__attribute__((always_inline)) PyObject_t* store_subscr(PyObject_t *v1, PyObject_t *v2, PyObject_t *v3){ 
+   PyDict_t *d = (PyDict_t*)v2;
+   (*d->elems)[v1] = v3;
+   return 0;
+}
+
 
 PyObject_t* builtin_getattr(PyObject_t **v1, uint64_t alen, const PyTuple_t **v2){
    dprintf("Load attr %p %p\n", v1[0], v1[1]);
@@ -333,8 +379,8 @@ __attribute__((always_inline)) PyObject_t* binop(PyObject_t *v1, PyObject_t *v2,
 }
 
 __attribute__((always_inline)) PyObject_t* unop(PyObject_t *v1, uint32_t slot){
-   //printf("binop %p %p %d %d\n", v1, v2, slot1, slot2);
-   //dump(v1);
+   printf("unop %p %d\n", v1, slot);
+   dump(v1);
    //dump(v2);
    PyObject_t *ret=0;
    if(v1->vtable->dispatch[slot]){
@@ -362,13 +408,13 @@ __attribute__((always_inline)) bool truth(PyObject_t *v1){
    return true;
 }
 
-__attribute__((always_inline)) uint32_t hash_fnv(uint32_t d, PyStr_t *v){
+__attribute__((always_inline)) uint64_t hash_fnv(uint64_t d, PyStr_t *v){
     if(d == 0)
        d = 0x01000193;
 
     // Use the FNV algorithm from http://isthe.com/chongo/tech/comp/fnv/ 
     for(uint32_t i=0; i < v->sz-1; i++)
-        d = ( (d ^ v->str[i]) * 0x01000193) & 0xffffffff;
+        d = ( (d ^ v->str[i]) * 0x01000193);
 
     return d;
 }
@@ -543,6 +589,18 @@ PyObject_t* str_getitem(PyObject_t **v1, uint64_t alen, PyTuple_t **v2){
     return ret;
 }
 
+PyObject_t* str_hash(PyObject_t **v1, uint64_t alen, PyTuple_t **v2){
+    printf("Str hash\n");
+    PyStr_t *t = (PyStr_t*)v1[0];
+
+    PyInt_t *ret = (PyInt_t*)malloc(sizeof(PyInt_t));
+    ret->val = hash_fnv(0,t);
+    ret->vtable = &vtable_int;
+    ret->itable = 0;
+    return ret;
+}
+
+
 PyObject_t* tuple_getitem(PyObject_t **v1, uint64_t alen, PyTuple_t **v2){
     PyTuple_t *t = (PyTuple_t*)v1[0];
     PyInt_t *i = (PyInt_t*)v1[1];
@@ -656,6 +714,13 @@ __attribute__((always_inline)) PyObject_t* str_add(PyObject_t **v1, uint64_t ale
     memcpy(ret->str + s1->sz, s2->str, s2->sz);
     ret->str[newsz] = 0;
     return ret;
+}
+
+__attribute__((always_inline)) PyObject_t* dict_getitem(PyObject_t **v1, uint64_t alen, PyTuple_t **v2){
+    PyDict_t *dict = (PyDict_t*)v1[0];
+    PyObject_t *key = v1[1];
+
+    return (*dict->elems)[key];
 }
 
 PyObject_t* builtin_new(PyObject_t **v1, uint64_t alen, PyTuple_t **v2){

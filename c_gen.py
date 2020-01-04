@@ -3,21 +3,7 @@
 gperf = open("get_slot.gperf", "w")
 slots = open("slots.h", "w")
 
-om = ["float","str",
-                 "add","sub","mul","floordiv","truediv","mod","pow","lshift","rshift","and","xor","or",
-                 "radd","rsub","rmul","rfloordiv","rtruediv","rmod","rpow","rlshift","rrshift","rand","rxor","ror",
-                 "iadd","isub","imul","itruediv","ifloordiv","imod","ipow","ilshift","irshift","iand","ixor","ior",
-                 "neg","pos","abs","invert","complex","int","long","oct","hex",
-                 "index","round","trunc","floor","ceil",
-                 "enter","exit","iter","next",
-                 "lt","le","eq","ne","ge","gt",
-                 "new", "init", "del", "repr", "bytes", "format", "hash", "bool",
-                 "getattr","getattribute","setattr","delattr","dir",
-                 "get","set","delete","set_name","slots",
-                 "init_subclass","prepare","class","instancecheck","subclasscheck","class_getitem","call",
-                 "len","length_hint","getitem","setitem","delitem","missing","reverse","contains",
-                 "await","aiter","anext","aenter","aexit",
-                 ];
+from magic import magic_methods as om
 
 sl = ["int", "float", "tuple", "str", "code", "func", "class", "bool", "noimp", "exception", "list", "dict", "object"]
 
