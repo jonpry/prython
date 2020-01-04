@@ -1,141 +1,9 @@
-#include <stdio.h>
-#include <stdint.h>
-#include <stdlib.h>
-#include <stdbool.h>
-#include <string.h>
-#include <math.h>
-#include <assert.h>
-#include <exception>
-#include <unordered_map>
-
-extern "C" {
-class pyobj;
-
-size_t pyobj_hash(pyobj*);
-}
-
-// custom specialization of std::hash can be injected in namespace std
-namespace std
-{
-    template<> struct hash<pyobj*>
-    {
-      std::size_t operator()(pyobj* o) const noexcept {
-          return pyobj_hash(o);
-      }
-    };
-}       
+#include "main.h"
 
 extern "C" {
 
 #define register 
 #include "get_slot.cpp"
-#include "slots.h"
-
-#ifdef DEBUG
-#define dprintf(...) printf(__VA_ARGS__)
-#else
-#define dprintf(...)
-#endif
-
-class pyobj;
-class pyfunc;
-class pystr;
-class pyclass;
-class pytuple;
-typedef pyobj* (*fnty)(struct pyobj **v1, uint64_t alen, pytuple **v2);
-typedef int32_t (*lfnty )(pystr *);
-
-
-typedef struct {
-  uint64_t rtti;
-  pyobj *dispatch[100]; //TODO: this has to be right, hard to sync with dump.py
-} vtable_t;
-
-extern const vtable_t vtable_int, vtable_float, vtable_str, vtable_code, vtable_tuple, vtable_func, vtable_class, vtable_bool, vtable_NotImplemented, vtable_object, vtable_dict;
-
-typedef class pyobj {
-public:
-  const vtable_t *vtable;
-  vtable_t *itable;
-} PyObject_t;
-
-typedef class pyint : public pyobj {
-public:
-  int64_t val;
-} PyInt_t;
-
-typedef class pyfloat : public pyobj {
-public:
-  double val;
-} PyFloat_t;
-
-typedef class pystr : public pyobj {
-public:
-  uint64_t sz;
-  char str[];
-} PyStr_t;
-
-typedef class pytuple : public pyobj {
-public:
-  uint64_t sz;
-  pyobj *objs[];
-} PyTuple_t;
-
-typedef class pylist : public pyobj {
-public:
-  uint64_t sz, capacity;
-  pyobj **objs;
-} PyList_t;
-
-typedef struct pycode : public pyobj {
-public:
-  fnty func;
-  lfnty locals_func;
-  PyTuple_t *locals;
-} PyCode_t;
-
-typedef class pyfunc : public pyobj {
-public:
-  PyCode_t *code;
-  PyStr_t *str;
-  PyTuple_t *dargs;
-  pyclass *cls;
-} PyFunc_t;
-
-typedef class pybool : public pyobj {
-public:
-  int64_t val;
-} PyBool_t;
-
-typedef class pynoimp : public pyobj {
-} PyNoImp_t;
-
-typedef class pyclass : public pyobj {
-public:
-  PyStr_t* name;
-  PyFunc_t* constructor;
-  lfnty  locals_func;
-  PyTuple_t *locals;
-  PyTuple_t *values;
-} PyClass_t;
-
-typedef class pybase : public pyobj {
-public:
-   PyClass_t *cls;
-   std::unordered_map<std::string,PyObject_t*> *attrs;
-} PyBase_t;
-
-typedef class pydict : public pyobj {
-public:
-   std::unordered_map<PyObject_t*,PyObject_t*> *elems;
-} PyDict_t;
-
-extern PyNoImp_t global_noimp;
-extern PyBool_t global_false, global_true;
-extern PyFunc_t pyfunc_builtin_print_wrap, pyfunc_builtin_str, 
-                pyfunc_builtin_repr, pyfunc_builtin_getattr, 
-                pyfunc_builtin_setattr, pyfunc_builtin_buildclass,
-                pyfunc_builtin_new;
 
 const char *rtti_strings[] = {"int", "float", "tuple", "str", "code", "func", "class", "bool", "NotImplemented","exception","list","dict","object"};
 
@@ -452,120 +320,6 @@ __attribute__((always_inline)) int32_t local_lookup(PyStr_t* str, PyTuple_t *t, 
     return -1;
 }
 
-
-#define BINARY_DECL(f,t,v,op) \
-__attribute__((always_inline)) PyObject_t* f(PyObject_t **v1, uint64_t alen, PyTuple_t **v2){ \
-   if(v1[1]->vtable->rtti != v.rtti) \
-     return &global_noimp; \
-   t *ret = (t*)malloc(sizeof(t)); \
-   int64_t aval = ((t*)(v1[0]))->val; \
-   int64_t val = ((t*)v1[1])->val; \
-   ret->val =  op; \
-   ret->vtable = &v; \
-   ret->itable = 0; \
-   return ret; \
-}
-
-#define BOOL_DECL(f,t,v,op) \
-__attribute__((always_inline)) PyObject_t* f(PyObject_t **v1, uint64_t alen, PyTuple_t **v2){ \
-   if(v1[1]->vtable->rtti != v.rtti) \
-     return &global_noimp; \
-   int64_t aval = ((t*)(v1[0]))->val; \
-   int64_t val = ((t*)v1[1])->val; \
-   bool res =  op; \
-   return res?&global_true:&global_false; \
-}
-
-#define UNARY_DECL(f,t,v,op) \
-__attribute__((always_inline)) PyObject_t* f(PyObject_t **v1, uint64_t alen, PyTuple_t **v2){ \
-   int64_t val = ((t*)(v1[0]))->val; \
-   t *ret = (t*)malloc(sizeof(t)); \
-   ret->val =  op; \
-   ret->vtable = &v; \
-   ret->itable = 0; \
-   return ret; \
-}
-
-#define BINARY_DECL_INT_TO_FLOAT(f,t,v,...) \
-__attribute__((always_inline)) PyObject_t* f(PyObject_t **v1, uint64_t alen, PyTuple_t **v2){ \
-   double val=0; \
-   if(v1[1]->vtable->rtti != v.rtti) {\
-      if(v1[1]->vtable->dispatch[FLOAT_SLOT]){ \
-         PyFloat_t *temp = (PyFloat_t*)((PyFunc_t*)v1[1]->vtable->dispatch[FLOAT_SLOT])->code->func(&v1[1],alen-1,0); \
-         val = temp->val; \
-      }else \
-         return &global_noimp; \
-   } else \
-      val = ((PyFloat_t*)v1[1])->val; \
-   t *ret = (t*)malloc(sizeof(t)); \
-   double aval=((t*)(v1[0]))->val; \
-   ret->val = __VA_ARGS__ ;\
-   ret->vtable = &v; \
-   ret->itable = 0; \
-   return ret; \
-}
-
-typedef PyObject_t* (*bin_func_t)(PyObject_t*, uint64_t alen, PyTuple_t**);
-//bin_func_t my_func = [](PyObject_t*, PyObject_t*){return 0;}
-
-BINARY_DECL_INT_TO_FLOAT(float_add,PyFloat_t,vtable_float,aval+val)
-BINARY_DECL_INT_TO_FLOAT(float_radd,PyFloat_t,vtable_float,aval+val)
-BINARY_DECL_INT_TO_FLOAT(float_mul,PyFloat_t,vtable_float,aval*val)
-BINARY_DECL_INT_TO_FLOAT(float_rmul,PyFloat_t,vtable_float,aval*val)
-BINARY_DECL_INT_TO_FLOAT(float_sub,PyFloat_t,vtable_float,aval-val)
-BINARY_DECL_INT_TO_FLOAT(float_rsub,PyFloat_t,vtable_float,aval-val)
-BINARY_DECL_INT_TO_FLOAT(float_mod,PyFloat_t,vtable_float,__builtin_fmod(aval,val))
-BINARY_DECL_INT_TO_FLOAT(float_rmod,PyFloat_t,vtable_float,__builtin_fmod(aval,val))
-BINARY_DECL_INT_TO_FLOAT(float_truediv,PyFloat_t,vtable_float,aval/val)
-BINARY_DECL_INT_TO_FLOAT(float_rtruediv,PyFloat_t,vtable_float,aval/val)
-BINARY_DECL_INT_TO_FLOAT(float_floordiv,PyFloat_t,vtable_float,floor(aval/val))
-BINARY_DECL_INT_TO_FLOAT(float_rfloordiv,PyFloat_t,vtable_float,floor(aval/val))
-BINARY_DECL_INT_TO_FLOAT(float_pow,PyFloat_t,vtable_float,pow(aval,val))
-BINARY_DECL_INT_TO_FLOAT(float_rpow,PyFloat_t,vtable_float,pow(aval,val))
-
-BINARY_DECL(int_add,PyInt_t,vtable_int,aval + val)
-BINARY_DECL(int_radd,PyInt_t,vtable_int,aval + val)
-BINARY_DECL(int_mul,PyInt_t,vtable_int,aval - val)
-BINARY_DECL(int_sub,PyInt_t,vtable_int,aval - val)
-BINARY_DECL(int_and,PyInt_t,vtable_int,aval & val)
-BINARY_DECL(int_or,PyInt_t,vtable_int,aval | val)
-BINARY_DECL(int_xor,PyInt_t,vtable_int,aval ^ val)
-BINARY_DECL(int_lshift,PyInt_t,vtable_int,aval << val)
-BINARY_DECL(int_rshift,PyInt_t,vtable_int,aval >> val)
-BINARY_DECL(int_floordiv,PyInt_t,vtable_int,aval / val)
-BINARY_DECL(int_mod,PyInt_t,vtable_int,aval % val)
-
-BOOL_DECL(int_gt,PyInt_t,vtable_int,aval > val) 
-BOOL_DECL(int_lt,PyInt_t,vtable_int,aval < val)
-BOOL_DECL(int_ge,PyInt_t,vtable_int,aval >= val) 
-BOOL_DECL(int_le,PyInt_t,vtable_int,aval <= val) 
-BOOL_DECL(int_ne,PyInt_t,vtable_int,aval != val) 
-BOOL_DECL(int_eq,PyInt_t,vtable_int,aval == val) 
-UNARY_DECL(int_neg,PyInt_t,vtable_int,-val)
-
-
-PyObject_t* float_str(PyObject_t **v1, uint64_t alen, PyTuple_t **v2){
-    char buf[32];
-    sprintf(buf,"%lf", ((PyFloat_t*)*v1)->val);
-    PyStr_t *ret = (PyStr_t*)malloc(sizeof(PyStr_t) + strlen(buf)+1);
-    ret->sz = strlen(buf);
-    ret->vtable = &vtable_str;
-    ret->itable = 0;
-    strcpy(ret->str,buf);
-    return ret;
-}
-
-PyObject_t* int_str(PyObject_t **v1, uint64_t alen, PyTuple_t **v2){
-    char buf[32];
-    sprintf(buf,"%ld", ((PyInt_t*)*v1)->val);
-    PyStr_t *ret = (PyStr_t*)malloc(sizeof(PyStr_t) + strlen(buf)+1);
-    ret->sz = strlen(buf);
-    ret->vtable = &vtable_str;
-    ret->itable = 0;
-    strcpy(ret->str,buf);
-    return ret;
-}
-
 PyObject_t* bool_str(PyObject_t **v1, uint64_t alen, PyTuple_t **v2){
     char buf[32];
     sprintf(buf,"%s", ((PyInt_t*)*v1)->val?"True":"False");
@@ -690,14 +444,6 @@ __attribute__((always_inline)) PyObject_t* str_str(PyObject_t **v1, uint64_t ale
     return v1[0];
 }
 
-__attribute__((always_inline)) PyObject_t* int_float(PyObject_t **v1, uint64_t alen, PyTuple_t **v2){
-   PyFloat_t *ret = (PyFloat_t*)malloc(sizeof(PyFloat_t)); 
-   ret->val = ((PyInt_t*)(v1[0]))->val; 
-   ret->vtable = &vtable_float; 
-   ret->itable = 0;
-   return ret; 
-}
-
 __attribute__((always_inline)) PyObject_t* str_add(PyObject_t **v1, uint64_t alen, PyTuple_t **v2){
     PyStr_t *s1 = (PyStr_t*)v1[0];
     PyStr_t *s2 = (PyStr_t*)v1[1];
@@ -720,7 +466,11 @@ __attribute__((always_inline)) PyObject_t* dict_getitem(PyObject_t **v1, uint64_
     PyDict_t *dict = (PyDict_t*)v1[0];
     PyObject_t *key = v1[1];
 
-    return (*dict->elems)[key];
+    auto it = dict->elems->find(key);
+    if(it == dict->elems->end()){
+        THROW();
+    }
+    return (*it).second;
 }
 
 PyObject_t* builtin_new(PyObject_t **v1, uint64_t alen, PyTuple_t **v2){
