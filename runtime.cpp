@@ -7,20 +7,6 @@ extern "C" {
 
 const char *rtti_strings[] = {"int", "float", "tuple", "str", "code", "func", "class", "bool", "NotImplemented","exception","list","dict","object"};
 
-
-#undef malloc
-void* malloc(size_t) __attribute__((returns_nonnull));
-void* __cxa_allocate_exception(size_t thrown_size);
-void __cxa_throw(void* thrown_exception,
-                 struct type_info *tinfo,
-                 void (*dest)(void*));
-
-//      void* exc = __cxa_allocate_exception(16); 
-#define THROW() \
-    { \
-      __cxa_throw((void*)13,0,0); \
-    }
-
 __attribute__((noinline)) void dump(const PyObject_t *v){
    if(!v){
       printf("None\n");
@@ -50,7 +36,6 @@ PyObject_t* import_name(PyObject_t *v1, PyObject_t *v2, PyObject_t *v3){
    return 0;
 }
 
-__attribute__((always_inline)) PyObject_t* unop(PyObject_t *v1, uint32_t slot);
 size_t pyobj_hash(pyobj* o){
    PyInt_t *i = (PyInt_t*)unop(o,HASH_SLOT);
    return i->val;
@@ -281,7 +266,7 @@ __attribute__((always_inline)) uint64_t hash_fnv(uint64_t d, PyStr_t *v){
        d = 0x01000193;
 
     // Use the FNV algorithm from http://isthe.com/chongo/tech/comp/fnv/ 
-    for(uint32_t i=0; i < v->sz-1; i++)
+    for(uint32_t i=0; i < v->sz; i++)
         d = ( (d ^ v->str[i]) * 0x01000193);
 
     return d;
@@ -462,17 +447,6 @@ __attribute__((always_inline)) PyObject_t* str_add(PyObject_t **v1, uint64_t ale
     return ret;
 }
 
-__attribute__((always_inline)) PyObject_t* dict_getitem(PyObject_t **v1, uint64_t alen, PyTuple_t **v2){
-    PyDict_t *dict = (PyDict_t*)v1[0];
-    PyObject_t *key = v1[1];
-
-    auto it = dict->elems->find(key);
-    if(it == dict->elems->end()){
-        THROW();
-    }
-    return (*it).second;
-}
-
 PyObject_t* builtin_new(PyObject_t **v1, uint64_t alen, PyTuple_t **v2){
    dprintf("new %lu, %p\n", alen, v1[0]);
    dump(v1[0]);
@@ -528,7 +502,7 @@ PyObject_t* builtin_buildclass(PyObject_t **v1, uint64_t alen, PyTuple_t **v2){
 
       PyStr_t *str = (PyStr_t*)constructor->code->locals->objs[i];
       dump(str);
-      const SlotResult *res = in_word_set(str->str,str->sz-1);
+      const SlotResult *res = in_word_set(str->str,str->sz);
       if(res){
          dprintf("L: %d\n", res->slot_num);
          cls->itable->dispatch[res->slot_num] = values->objs[i];

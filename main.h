@@ -191,4 +191,19 @@ __attribute__((always_inline)) PyObject_t* f(PyObject_t **v1, uint64_t alen, PyT
 
 typedef PyObject_t* (*bin_func_t)(PyObject_t*, uint64_t alen, PyTuple_t**);
 
+#undef malloc
+void* malloc(size_t) __attribute__((returns_nonnull));
+void* __cxa_allocate_exception(size_t thrown_size);
+void __cxa_throw(void* thrown_exception,
+                 struct type_info *tinfo,
+                 void (*dest)(void*));
+
+//      void* exc = __cxa_allocate_exception(16); 
+#define THROW() \
+    { \
+      __cxa_throw((void*)13,0,0); \
+    }
+
+__attribute__((always_inline)) PyObject_t* unop(PyObject_t *v1, uint32_t slot);
+
 } //Extern "C"

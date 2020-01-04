@@ -79,7 +79,7 @@ def get_constant(con,name=""):
       t,p = make_str_type(len(con)+1)
       g = ir.GlobalVariable(module,t,"global_" + str(const_idx) + name)
       const_map[tup] = g
-      g.initializer = t([[vtable_map['str'],pvtable_type(None)],int64(len(con)+1),ir.Constant(ir.ArrayType(char,len(con)+1),bytearray(con + "\0",'utf8'))])
+      g.initializer = t([[vtable_map['str'],pvtable_type(None)],int64(len(con)),ir.Constant(ir.ArrayType(char,len(con)+1),bytearray(con + "\0",'utf8'))])
    elif isinstance(con, types.CodeType):
       g = ir.GlobalVariable(module,pycode_type,"global_" + str(const_idx))
       const_map[tup] = g
@@ -122,7 +122,7 @@ integrals = {"int" : { "mul" , "add", "xor", "or", "and", "radd", "mod", "floord
              "NotImplemented" : {},
              "exception" : {},
              "list" : { "str", }, 
-             "dict" : { "getitem"}, 
+             "dict" : { "getitem", "str"}, 
              "object" : {}}
 
 vtable_map = {}
