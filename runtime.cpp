@@ -67,7 +67,7 @@ PyObject_t* builtin_getattr(PyObject_t **v1, uint64_t alen, const PyTuple_t **v2
    PyStr_t* attr = (PyStr_t*)v1[1];
    PyObject_t *obj = (PyObject_t*)v1[0];
    //TODO: assert is string
-   const SlotResult *res = in_word_set(attr->str,attr->sz-1);
+   const SlotResult *res = in_word_set(attr->str,attr->sz);
    if(res){
        dprintf("Slot is %d\n", res->slot_num);
        if(obj->itable && obj->itable->dispatch[res->slot_num]->vtable->rtti != NOIMP_RTTI)
@@ -109,7 +109,7 @@ PyObject_t* builtin_setattr(PyObject_t **v1, uint64_t alen, const PyTuple_t **v2
    PyObject_t *obj = (PyObject_t*)v1[0];
    PyStr_t* attr = (PyStr_t*)v1[1];
    //TODO: assert is string
-   const SlotResult *res = in_word_set(attr->str,attr->sz-1);
+   const SlotResult *res = in_word_set(attr->str,attr->sz);
    if(res){
        dprintf("Slot is %d\n", res->slot_num);
        if(!v1[0]->itable){
@@ -178,6 +178,11 @@ __attribute__((always_inline)) PyObject_t* load_name(PyObject_t *v1, PyObject_t*
          return &global_noimp; //TODO:
       if(strcmp(str->str,"__name__") == 0)
          return &global_noimp; //TODO:
+
+      //TODO: hack for exception testing
+      if(strcmp(str->str,"FooException") == 0)
+         return &global_noimp; 
+
       THROW();
    }
    return v1;
@@ -209,7 +214,7 @@ __attribute__((always_inline)) PyObject_t* call_function(PyObject_t **v1, uint64
 
 
 __attribute__((always_inline)) PyObject_t* binop(PyObject_t *v1, PyObject_t *v2, uint32_t slot1, uint32_t slot2){
-   //printf("binop %p %p %d %d\n", v1, v2, slot1, slot2);
+   printf("binop %p %p %d %d\n", v1, v2, slot1, slot2);
    //dump(v1);
    //dump(v2);
    PyObject_t *ret=0;

@@ -282,7 +282,7 @@ def pyslot(builder, o, slot):
   f = builder.gep(vtable,(int32(0),int32(1),int32(magic_methods.index(slot))))
   return builder.load(f)
 
-def binary_op(builder,stack_ptr,op,reverse=True):
+def binary_op(func,builder,stack_ptr,op,reverse=True):
   v1 = builder.load(stack[stack_ptr-1])
   stack_ptr-=1
   v2 = builder.load(stack[stack_ptr-1])
@@ -291,28 +291,29 @@ def binary_op(builder,stack_ptr,op,reverse=True):
   v = stack[stack_ptr]
   args = (v2,v1,int32(magic_methods.index(op)),int32(magic_methods.index("r" + op) if reverse else -1))
   if len(except_stack):
-     newblock,builder,rval = invoke(binop,builder,target,args)
+     newblock,builder,rval = invoke(func,builder,binop,args)
      replace_block(ins,block_idx,newblock,builder)
      builder.store(rval,stack[stack_ptr])
   else:
      builder.store(builder.call(binop,args),v)
   stack_ptr+=1
-  return stack_ptr
+  return (stack_ptr,builder)
 
-def unary_op(builder,stack_ptr,op):
+def unary_op(func,builder,stack_ptr,op,pop=True):
   v1 = builder.load(stack[stack_ptr-1])
-  stack_ptr-=1
+  if pop:
+     stack_ptr-=1
 
   v = stack[stack_ptr]
   args = (v1,int32(magic_methods.index(op)))
   if len(except_stack):
-     newblock,builder,rval = invoke(unop,builder,target,args)
+     newblock,builder,rval = invoke(func,builder,unop,args)
      replace_block(ins,block_idx,newblock,builder)
      builder.store(rval,stack[stack_ptr])
   else:
      builder.store(builder.call(unop,args),v)
   stack_ptr+=1
-  return stack_ptr
+  return (stack_ptr,builder)
 
 pad_map = {}
 def get_lpad(func):
@@ -337,6 +338,7 @@ def invoke(func,builder,target,args):
 
    lpad = get_lpad(func)[0]
    newblock = func.append_basic_block(name="block" + str(block_num+1))
+   print(newblock.name)
    blocks_by_ofs[ins.offset] = newblock
    block_num += 1
    rval = builder.invoke(target, args, newblock, lpad)
@@ -456,7 +458,7 @@ for c in codes:
         blocks_by_ofs[ins.offset] = b
         block_num += 1
         nxt=False
-      if ins.opname=='POP_JUMP_IF_FALSE' or ins.opname=='POP_JUMP_IF_TRUE' or ins.opname=='SETUP_EXCEPT' or ins.opname=='JUMP_FORWARD':
+      if ins.opname=='POP_JUMP_IF_FALSE' or ins.opname=='POP_JUMP_IF_TRUE' or ins.opname=='SETUP_EXCEPT' or ins.opname=='JUMP_FORWARD' or ins.opname=='JUMP_ABSOLUTE' or ins.opname=='SETUP_LOOP':
         nxt=True
       ins_idx +=1
 
@@ -466,13 +468,18 @@ for c in codes:
    branch_stack = {}
    except_stack = []
    finally_stack = []
+   loop_stack = {}
+   for_stack = {}
    unreachable = False
 
    for ins in dis.get_instructions(c):
        print(ins)
        a,block_idx,block,builder = blocks[bisect.bisect_right(ins_idxs,ins_idx)-1]
 
-       if unreachable and not ins.is_jump_target:
+       print(block.name)
+
+
+       if unreachable and (not ins.is_jump_target or ins.offset in for_stack):
           ins_idx+=1
           func.blocks.remove(block)
           print("Unreachable")
@@ -487,13 +494,19 @@ for c in codes:
             })
        if ins.offset in branch_stack:
           stack_ptr = branch_stack[ins.offset]
+          print("Restoring stack_ptr: " + str(stack_ptr))
 
        if ins.offset in except_stack: #This is a catch block
           assert(ins.offset == except_stack[-1]) #assumption not sure if true
           func.blocks.remove(block)
           newblock,builder = get_lpad(except_stack[-1])
           replace_block(ins,block_idx,newblock,builder)
-          stack_ptr += 3
+          if not ins.offset in loop_stack:
+             stack_ptr += 3
+          print("$$$$$ " + str(ins))
+
+       if ins.offset in loop_stack:
+          except_stack = except_stack[:-1]
 
        debug(builder,"ins " + str(ins.offset))
 
@@ -508,6 +521,7 @@ for c in codes:
             builder.store(builder.bitcast(const_map[tup],ppyobj_type),v)
          stack_ptr+=1
        elif ins.opname=='LOAD_FAST' or ins.opname=='LOAD_NAME': #TODO: this is all wrong, name first searches locals then globals then builtin. name[ins.arg] may not even be a thing
+         print("stack_ptr: " + str(stack_ptr))       
          v = stack[stack_ptr]
          #TODO: use invoke
          tbl = builder.call(load_name, (builder.load((local if ins.opname=="LOAD_FAST" else name)[ins.arg]),builder.bitcast(get_constant(ins.argval),ppyobj_type)))
@@ -635,6 +649,10 @@ for c in codes:
          tbuild = ir.IRBuilder(tblock)
          fbuild = ir.IRBuilder(fblock)
 
+ 
+         print(tblock.name)
+         print(fblock.name)
+
          builder.cbranch(cond,tblock,fblock)
 
          debug(tbuild,"true")
@@ -713,7 +731,7 @@ for c in codes:
          stack_ptr-=1
          branch_stack[ins.arg] = stack_ptr
          did_jmp = True
-       elif ins.opname=='JUMP_FORWARD':
+       elif ins.opname=='JUMP_FORWARD' or ins.opname=='JUMP_ABSOLUTE':
          builder.branch(blocks_by_ofs[ins.argval])
          branch_stack[ins.argval] = stack_ptr
          did_jmp=True
@@ -730,37 +748,37 @@ for c in codes:
          builder.store(ir.Constant(ppyobj_type,None),v)
          stack_ptr+=1
        elif ins.opname=='BINARY_MULTIPLY':
-         stack_ptr = binary_op(builder,stack_ptr,"mul")
+         stack_ptr,builder = binary_op(func,builder,stack_ptr,"mul")
        elif ins.opname=='BINARY_ADD':
-         stack_ptr = binary_op(builder,stack_ptr,"add")
+         stack_ptr,builder = binary_op(func,builder,stack_ptr,"add")
        elif ins.opname=='BINARY_SUBTRACT':
-         stack_ptr = binary_op(builder,stack_ptr,"sub")
+         stack_ptr,builder = binary_op(func,builder,stack_ptr,"sub")
        elif ins.opname=='BINARY_OR':
-         stack_ptr = binary_op(builder,stack_ptr,"or")
+         stack_ptr,builder = binary_op(func,builder,stack_ptr,"or")
        elif ins.opname=='BINARY_AND':
-         stack_ptr = binary_op(builder,stack_ptr,"and")
+         stack_ptr,builder = binary_op(func,builder,stack_ptr,"and")
        elif ins.opname=='BINARY_XOR':
-         stack_ptr = binary_op(builder,stack_ptr,"xor")
+         stack_ptr,builder = binary_op(func,builder,stack_ptr,"xor")
        elif ins.opname=='BINARY_LSHIFT':
-         stack_ptr = binary_op(builder,stack_ptr,"lshift")
+         stack_ptr,builder = binary_op(func,builder,stack_ptr,"lshift")
        elif ins.opname=='BINARY_RSHIFT':
-         stack_ptr = binary_op(builder,stack_ptr,"rshift")
+         stack_ptr,builder = binary_op(func,builder,stack_ptr,"rshift")
        elif ins.opname=='BINARY_POWER':
-         stack_ptr = binary_op(builder,stack_ptr,"pow")
+         stack_ptr,builder = binary_op(func,builder,stack_ptr,"pow")
        elif ins.opname=='BINARY_MODULO':
-         stack_ptr = binary_op(builder,stack_ptr,"mod")
+         stack_ptr,builder = binary_op(func,builder,stack_ptr,"mod")
        elif ins.opname=='BINARY_TRUE_DIVIDE':
-         stack_ptr = binary_op(builder,stack_ptr,"truediv")
+         stack_ptr,builder = binary_op(func,builder,stack_ptr,"truediv")
        elif ins.opname=='BINARY_FLOOR_DIVIDE':
-         stack_ptr = binary_op(builder,stack_ptr,"floordiv")
+         stack_ptr,builder = binary_op(func,builder,stack_ptr,"floordiv")
        elif ins.opname=='BINARY_SUBSCR':
-         stack_ptr = binary_op(builder,stack_ptr,"getitem",False)
+         stack_ptr,builder = binary_op(func,builder,stack_ptr,"getitem",False)
        elif ins.opname=='UNARY_NEGATIVE':
-         stack_ptr = unary_op(builder,stack_ptr,"neg")
+         stack_ptr,builder = unary_op(func,builder,stack_ptr,"neg")
        elif ins.opname=='UNARY_POSITIVE':
-         stack_ptr = unary_op(builder,stack_ptr,"pos")
+         stack_ptr,builder = unary_op(func,builder,stack_ptr,"pos")
        elif ins.opname=='UNARY_INVERT':
-         stack_ptr = unary_op(builder,stack_ptr,"invert")
+         stack_ptr,builder = unary_op(func,builder,stack_ptr,"invert")
        elif ins.opname=="NOP":
             pass
        elif ins.opname=="EXTENDED_ARG":
@@ -783,7 +801,7 @@ for c in codes:
            stack_ptr+=1
          else:
            opmap = { '>' : 'gt', '<' : 'lt', '>=' : 'ge', "<=" : 'le' }
-           stack_ptr = binary_op(builder,stack_ptr,opmap[ins.argval],False)
+           stack_ptr,builder = binary_op(func,builder,stack_ptr,opmap[ins.argval],False)
        elif ins.opname=='SETUP_FINALLY':
            finally_stack.append(ins.argval)       
        elif ins.opname=='END_FINALLY':
@@ -791,19 +809,32 @@ for c in codes:
        elif ins.opname=='SETUP_EXCEPT':
            except_stack.append(ins.argval)
            branch_stack[ins.argval] = stack_ptr
+       elif ins.opname=='SETUP_LOOP':
+           except_stack.append(ins.argval)
+           branch_stack[ins.argval] = stack_ptr
+           loop_stack[ins.argval] = True
        elif ins.opname=='POP_BLOCK':
            pass
        elif ins.opname=='POP_EXCEPT':
            except_stack = except_stack[:-1]
-           pass       
+       elif ins.opname=='GET_ITER':
+           stack_ptr,builder = unary_op(func,builder,stack_ptr,"iter",True)
+           #did_jmp = True #TODO wtf is going on here
+       elif ins.opname=='FOR_ITER':
+           stack_ptr,builder = unary_op(func,builder,stack_ptr,"next",False)  
+           branch_stack[ins.argval] = stack_ptr
+           for_stack[ins.argval] = True
        else:
            assert(False)
+
+       print(block.name)
 
        if (   ins.opname!='SETUP_FINALLY' and 
               ins.opname!='SETUP_EXCEPT' and
               ins.opname!='POP_EXCEPT' and
               ins.opname!='END_FINALLY' and
               ins.opname!='EXTENDED_ARG' and
+              ins.opname!='SETUP_LOOP' and
               not dis.stack_effect(ins.opcode,ins.arg) == stack_ptr - save_stack_ptr):
           print(dis.stack_effect(ins.opcode,ins.arg), stack_ptr - save_stack_ptr)
           assert(False)
