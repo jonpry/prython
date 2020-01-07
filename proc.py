@@ -121,9 +121,10 @@ integrals = {"int" : { "mul" , "add", "xor", "or", "and", "radd", "mod", "floord
              "bool" : { "str" }, 
              "NotImplemented" : {},
              "exception" : {},
-             "list" : { "str", }, 
+             "list" : { "str", "iter"}, 
              "dict" : { "getitem", "str"}, 
-             "object" : {}}
+             "object" : {},
+             "list_iter" : {"next"}}
 
 vtable_map = {}
 table_map = {}
@@ -339,7 +340,7 @@ def invoke(func,builder,target,args):
    lpad = get_lpad(func)[0]
    newblock = func.append_basic_block(name="block" + str(block_num+1))
    print(newblock.name)
-   blocks_by_ofs[ins.offset] = newblock
+   #blocks_by_ofs[ins.offset] = newblock
    block_num += 1
    rval = builder.invoke(target, args, newblock, lpad)
    builder = ir.IRBuilder(newblock)
@@ -397,7 +398,7 @@ di_func_type = module.add_debug_info("DISubroutineType", {
 
 
 def replace_block(ins,block_idx,newblock,builder):
-   blocks_by_ofs[ins.offset] = newblock
+   #blocks_by_ofs[ins.offset] = newblock
    blocks[block_idx][2] = newblock
    blocks[block_idx][3] = builder                
 
@@ -819,7 +820,6 @@ for c in codes:
            except_stack = except_stack[:-1]
        elif ins.opname=='GET_ITER':
            stack_ptr,builder = unary_op(func,builder,stack_ptr,"iter",True)
-           #did_jmp = True #TODO wtf is going on here
        elif ins.opname=='FOR_ITER':
            stack_ptr,builder = unary_op(func,builder,stack_ptr,"next",False)  
            branch_stack[ins.argval] = stack_ptr

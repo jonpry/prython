@@ -51,7 +51,7 @@ typedef struct {
   pyobj *dispatch[100]; //TODO: this has to be right, hard to sync with dump.py
 } vtable_t;
 
-extern const vtable_t vtable_int, vtable_float, vtable_str, vtable_code, vtable_tuple, vtable_func, vtable_class, vtable_bool, vtable_NotImplemented, vtable_object, vtable_dict;
+extern const vtable_t vtable_int, vtable_float, vtable_str, vtable_code, vtable_tuple, vtable_func, vtable_class, vtable_bool, vtable_NotImplemented, vtable_object, vtable_dict, vtable_list_iter;
 
 typedef class pyobj {
 public:
@@ -129,6 +129,12 @@ typedef class pydict : public pyobj {
 public:
    std::unordered_map<PyObject_t*,PyObject_t*> *elems;
 } PyDict_t;
+
+typedef class pylist_it : public pyobj {
+public:
+   PyList_t *obj;
+   uint64_t pos;
+} PyList_Iterator_t;
 
 extern PyNoImp_t global_noimp;
 extern PyBool_t global_false, global_true;

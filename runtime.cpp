@@ -5,7 +5,7 @@ extern "C" {
 #define register 
 #include "get_slot.cpp"
 
-const char *rtti_strings[] = {"int", "float", "tuple", "str", "code", "func", "class", "bool", "NotImplemented","exception","list","dict","object"};
+const char *rtti_strings[] = {"int", "float", "tuple", "str", "code", "func", "class", "bool", "NotImplemented","exception","list","dict","object","list_iter"};
 
 __attribute__((noinline)) void dump(const PyObject_t *v){
    if(!v){
@@ -149,7 +149,7 @@ __attribute__((noinline)) PyObject_t* builtin_print(PyObject_t ** pv1,
    }
    printf("Print %p %p\n", v1, v2);
    dump(v1);
-   dump(pv1[1]);
+   //dump(pv1[1]);
    return 0;
 }
 
@@ -411,8 +411,25 @@ PyObject_t* list_str(PyObject_t **v1, uint64_t alen, PyTuple_t **v2){
     ret->str[pos++] = 0;      
 
     return ret;
-
 }
+
+PyObject_t* list_iter(PyObject_t **v1, uint64_t alen, PyTuple_t **v2){
+    PyList_Iterator_t *it = (PyList_Iterator_t*)malloc(sizeof(PyList_Iterator_t));
+    it->vtable = &vtable_list_iter;
+    it->obj = (PyList_t*)v1[0];
+    it->pos = 0;
+    return it;
+}
+
+PyObject_t* list_iter_next(PyObject_t **v1, uint64_t alen, PyTuple_t **v2){
+    PyList_Iterator_t *it = (PyList_Iterator_t*)v1[0];
+    printf("iPos: %lu\n", it->pos);
+    if(it->pos>=it->obj->sz){
+       THROW();
+    }
+    return it->obj->objs[it->pos++];
+}
+
 
 PyObject_t* tuple_str(PyObject_t **v1, uint64_t alen, PyTuple_t **v2){
     //assert(false);
