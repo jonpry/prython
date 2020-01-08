@@ -294,9 +294,10 @@ def binary_op(func,builder,stack_ptr,op,reverse=True):
   if len(except_stack):
      newblock,builder,rval = invoke(func,builder,binop,args)
      replace_block(ins,block_idx,newblock,builder)
-     builder.store(rval,stack[stack_ptr])
   else:
-     builder.store(builder.call(binop,args),v)
+     rval=builder.call(binop,args)
+  builder.store(rval,v)
+
   stack_ptr+=1
   return (stack_ptr,builder)
 
@@ -577,7 +578,7 @@ for c in codes:
          builder.store(data,builder.gep(obj,(int32(0),int32(3))))
 
          for te in range(ins.arg):
-            builder.store(builder.load(stack[stack_ptr-1]),builder.gep(data,(int32(te),)))
+            builder.store(builder.load(stack[stack_ptr-1]),builder.gep(data,(int32(ins.arg-te-1),)))
             stack_ptr-=1
          builder.store(builder.bitcast(obj,ppyobj_type),stack[stack_ptr])
          stack_ptr+=1

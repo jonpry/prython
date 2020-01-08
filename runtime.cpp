@@ -25,6 +25,9 @@ __attribute__((noinline)) void dump(const PyObject_t *v){
       case STR_RTTI: {
           printf("Str: %s\n", ((PyStr_t*)v)->str); 
        }break;
+      case BOOL_RTTI: {
+          printf("Bool: %ld\n", ((PyBool_t*)v)->val); 
+       }break;
    }
 }
 
@@ -254,13 +257,15 @@ __attribute__((always_inline)) PyObject_t* unop(PyObject_t *v1, uint32_t slot){
 }
 
 __attribute__((always_inline)) bool truth(PyObject_t *v1){
-   //printf("truth\n");
-   //dump(v1);
+   printf("truth\n");
+   dump(v1);
    if(!v1)
      return false;
    if(v1->vtable->rtti == INT_RTTI && ((PyInt_t*)v1)->val == 0)
      return false;
    if(v1->vtable->rtti == FLOAT_RTTI && ((PyFloat_t*)v1)->val == 0)
+     return false;
+   if(v1->vtable->rtti == BOOL_RTTI && ((PyBool_t*)v1)->val == false)
      return false;
    //printf("Was true\n");
    return true;
