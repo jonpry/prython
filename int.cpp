@@ -4,7 +4,7 @@ extern "C" {
 
 BINARY_DECL(int_add,PyInt_t,vtable_int,aval + val)
 BINARY_DECL(int_radd,PyInt_t,vtable_int,aval + val)
-BINARY_DECL(int_mul,PyInt_t,vtable_int,aval - val)
+BINARY_DECL(int_mul,PyInt_t,vtable_int,aval * val)
 BINARY_DECL(int_sub,PyInt_t,vtable_int,aval - val)
 BINARY_DECL(int_and,PyInt_t,vtable_int,aval & val)
 BINARY_DECL(int_or,PyInt_t,vtable_int,aval | val)

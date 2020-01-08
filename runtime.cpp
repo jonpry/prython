@@ -390,6 +390,8 @@ PyObject_t* list_str(PyObject_t **v1, uint64_t alen, PyTuple_t **v2){
     char left = '[';
     char right = ']';
     PyList_t *t = (PyList_t*)(v1[0]);
+    dump(v1[0]);
+    printf("List_str %lu\n", t->sz);
     PyStr_t *strs[t->sz];
     size_t total_sz=0;
     for(uint64_t i=0; i < t->sz; i++){
@@ -424,6 +426,17 @@ PyObject_t* list_iter(PyObject_t **v1, uint64_t alen, PyTuple_t **v2){
     it->obj = (PyList_t*)v1[0];
     it->pos = 0;
     return it;
+}
+
+PyObject_t* list_append(PyObject_t *v1, PyTuple_t *v2){
+    PyList_t *l = (PyList_t*)v1;
+    dump(l);
+    dump(v2);
+    printf("List append: %lu\n", l->sz);
+    l->objs = (PyObject_t**)realloc(l->objs,(l->sz+1)*sizeof(void*));
+    l->sz++;
+    l->objs[l->sz-1] = v2;
+    return l;
 }
 
 PyObject_t* list_iter_next(PyObject_t **v1, uint64_t alen, PyTuple_t **v2){

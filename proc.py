@@ -167,6 +167,9 @@ import_name = ir.Function(module, import_name_type, name="import_name")
 load_name_type = ir.FunctionType(ppyobj_type, (ppyobj_type, ppyobj_type))
 load_name = ir.Function(module, load_name_type, name="load_name")
 
+list_append_type = ir.FunctionType(ppyobj_type, (ppyobj_type, ppyobj_type))
+list_append = ir.Function(module, list_append_type, name="list_append")
+
 store_subscr_type = ir.FunctionType(ppyobj_type, (ppyobj_type, ppyobj_type, ppyobj_type))
 store_subscr = ir.Function(module, store_subscr_type, name="store_subscr")
 
@@ -729,7 +732,7 @@ for c in codes:
          else:
             rval = builder.call(store_subscr,(v1,v2,v3))
 
-       elif ins.opname=='LOAD_BUILD_CLASS': #TODO
+       elif ins.opname=='LOAD_BUILD_CLASS':
          v = stack[stack_ptr]
          builder.store(builder.bitcast(get_constant(builtin_buildclass),ppyobj_type),v)
          stack_ptr+=1
@@ -745,6 +748,14 @@ for c in codes:
          branch_stack[ins.argval] = stack_ptr
          did_jmp=True
          unreachable=True
+
+       elif ins.opname=='LIST_APPEND': 
+         v = builder.load(stack[stack_ptr-1])
+         stack_ptr-=1         
+         l = builder.load(stack[stack_ptr-ins.argval])
+         builder.call(list_append,(l,v))
+
+
        elif ins.opname=='LOAD_METHOD': #TODO
          v = stack[stack_ptr]
          builder.store(ir.Constant(ppyobj_type,None),v)
@@ -829,7 +840,7 @@ for c in codes:
        elif ins.opname=='GET_ITER':
            stack_ptr,builder = unary_op(func,builder,stack_ptr,"iter",True)
        elif ins.opname=='FOR_ITER':
-           branch_stack[ins.argval] = stack_ptr
+           branch_stack[ins.argval] = stack_ptr-1
            for_stack[ins.argval] = True
            except_stack.append(ins.argval)
            stack_ptr,builder = unary_op(func,builder,stack_ptr,"next",False)  
