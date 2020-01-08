@@ -329,10 +329,16 @@ def get_lpad(func):
 
    lbuilder.call(begin_catch,[])
    lbuilder.call(end_catch,[])
+   
+   rpad = func.append_basic_block(name="lpad" + str(block_num+1) + "_tgt")
+   lbuilder.branch(rpad)
+   rbuilder = ir.IRBuilder(rpad)
+   
+
    #lbuilder.call(resume,[lbuilder.extract_value(lp, 0)])
    #lbuilder.resume(lp)
-   pad_map[except_stack[-1]] = (lpad,lbuilder)
-   return (lpad,lbuilder)
+   pad_map[except_stack[-1]] = (lpad,lbuilder,rpad,rbuilder)
+   return pad_map[except_stack[-1]]
 
 def invoke(func,builder,target,args):
    global block_num
@@ -459,7 +465,7 @@ for c in codes:
         blocks_by_ofs[ins.offset] = b
         block_num += 1
         nxt=False
-      if ins.opname=='POP_JUMP_IF_FALSE' or ins.opname=='POP_JUMP_IF_TRUE' or ins.opname=='SETUP_EXCEPT' or ins.opname=='JUMP_FORWARD' or ins.opname=='JUMP_ABSOLUTE' or ins.opname=='SETUP_LOOP':
+      if ins.opname=='POP_JUMP_IF_FALSE' or ins.opname=='POP_JUMP_IF_TRUE' or ins.opname=='SETUP_EXCEPT' or ins.opname=='JUMP_FORWARD' or ins.opname=='JUMP_ABSOLUTE' or ins.opname=='SETUP_LOOP' or ins.opname=='BREAK_LOOP':
         nxt=True
       ins_idx +=1
 
@@ -469,7 +475,8 @@ for c in codes:
    branch_stack = {}
    except_stack = []
    finally_stack = []
-   loop_stack = {}
+   loop_stack = []
+   loop_tgt = {}
    for_stack = {}
    unreachable = False
 
@@ -480,7 +487,7 @@ for c in codes:
        print(block.name)
 
 
-       if unreachable and (not ins.is_jump_target or ins.offset in for_stack):
+       if unreachable and (not ins.is_jump_target):
           ins_idx+=1
           func.blocks.remove(block)
           print("Unreachable")
@@ -500,9 +507,9 @@ for c in codes:
        if ins.offset in except_stack: #This is a catch block
           assert(ins.offset == except_stack[-1]) #assumption not sure if true
           func.blocks.remove(block)
-          newblock,builder = get_lpad(except_stack[-1])
+          newblock,builder = get_lpad(except_stack[-1])[2:4]
           replace_block(ins,block_idx,newblock,builder)
-          if not ins.offset in loop_stack:
+          if not ins.offset in for_stack:
              stack_ptr += 3
           print("$$$$$ " + str(ins))
 
@@ -811,9 +818,9 @@ for c in codes:
            except_stack.append(ins.argval)
            branch_stack[ins.argval] = stack_ptr
        elif ins.opname=='SETUP_LOOP':
-           except_stack.append(ins.argval)
            branch_stack[ins.argval] = stack_ptr
-           loop_stack[ins.argval] = True
+           loop_stack.append(ins.argval)
+           loop_tgt[ins.argval] = ins.offset
        elif ins.opname=='POP_BLOCK':
            pass
        elif ins.opname=='POP_EXCEPT':
@@ -821,9 +828,16 @@ for c in codes:
        elif ins.opname=='GET_ITER':
            stack_ptr,builder = unary_op(func,builder,stack_ptr,"iter",True)
        elif ins.opname=='FOR_ITER':
-           stack_ptr,builder = unary_op(func,builder,stack_ptr,"next",False)  
            branch_stack[ins.argval] = stack_ptr
            for_stack[ins.argval] = True
+           except_stack.append(ins.argval)
+           stack_ptr,builder = unary_op(func,builder,stack_ptr,"next",False)  
+       elif ins.opname=="BREAK_LOOP":
+           tgt = loop_stack[-1]
+           builder.branch(blocks_by_ofs[tgt])
+           branch_stack[tgt] = stack_ptr
+           did_jmp=True
+           unreachable=True
        else:
            assert(False)
 
