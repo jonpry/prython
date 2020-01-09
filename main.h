@@ -140,6 +140,7 @@ public:
 typedef class pydict_view : public pyobj {
 public:
    PyDict_t *dict;
+   int type;
 } PyDict_View_t;
 
 typedef class pydict_iter : public pyobj {
@@ -225,5 +226,7 @@ void __cxa_throw(void* thrown_exception,
     }
 
 __attribute__((always_inline)) PyObject_t* unop(PyObject_t *v1, uint32_t slot);
+
+enum {DICTVIEW_ITEMS,DICTVIEW_KEYS,DICTVIEW_VALUES};
 
 } //Extern "C"

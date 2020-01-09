@@ -219,6 +219,12 @@ build_map = ir.Function(module, build_map_type, name="build_map")
 dict_items = ir.Function(module, fnty, name="dict_items")
 dict_items.attributes.add("uwtable")
 
+dict_values = ir.Function(module, fnty, name="dict_values")
+dict_values.attributes.add("uwtable")
+
+dict_keys = ir.Function(module, fnty, name="dict_keys")
+dict_keys.attributes.add("uwtable")
+
 
 begin_catch_type = ir.FunctionType(ir.VoidType(), [])
 begin_catch = ir.Function(module, begin_catch_type, "__cxa_begin_catch")
@@ -397,7 +403,7 @@ def make_lookup(name,ary):
    builder.ret(builder.call(local_lookup,(func.args[0],strs,g,v,int32(l))))
    return func
 
-get_constant(clz("dict",("items","keys","values"),(dict_items,)))
+get_constant(clz("dict",("items","keys","values"),(dict_items,dict_keys,dict_values)))
 
 ############## Enumerate all function definitions
 i=0
