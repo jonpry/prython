@@ -52,6 +52,12 @@ def get_int_array(a):
    g.initializer = t([int32(v) for v in a])
    return g
 
+class clz:
+   def __init__(self,name,ary,funcs):
+      self.name = name
+      self.ary = ary
+      self.funcs = funcs
+
 ############## This function creates a global variables decleration for any compile time constants
 def get_constant(con,name=""):
    const_idx = len(const_map)
@@ -102,9 +108,20 @@ def get_constant(con,name=""):
       g = ir.GlobalVariable(module,pyfunc_type,"pyfunc_" + con.name)      
       const_map[tup] = g
       g.initializer = pyfunc_type([[vtable_map['func'],pvtable_type(None)],c,get_constant(con.name).bitcast(ppystr_type),make_tuple_type(0)[1](None), ppyclass_type(None)])
+   elif isinstance(con,clz):
+      lookup = make_lookup(con.name + "_lookup",con.ary)
+      name = get_constant(con.name).bitcast(ppystr_type)
+      locs = get_constant(con.ary).bitcast(ppytuple_type)
+      tgts = get_constant(con.funcs).bitcast(ppytuple_type)
+      g = ir.GlobalVariable(module,pyclass_type,"pyclass_" + con.name)      
+      const_map[tup] = g
+      g.initializer = pyclass_type([[vtable_map[con.name],pvtable_type(None)],name,ppyfunc_type(None),lookup,locs,tgts])
+   elif isinstance(con,ir.values.Constant):
+      return con
    else:
       print(type(con))
       assert(False)   
+
    g.global_constant = True
    return g
 
@@ -124,7 +141,9 @@ integrals = {"int" : { "mul" , "add", "xor", "or", "and", "radd", "mod", "floord
              "list" : { "str", "iter"}, 
              "dict" : { "getitem", "str"}, 
              "object" : {},
-             "list_iter" : {"next"}}
+             "list_iter" : {"next"},
+             "dict_view" : { "iter" },
+             "dict_iter" : { "next" } }
 
 vtable_map = {}
 table_map = {}
@@ -196,6 +215,10 @@ builtin_setattr.attributes.add("uwtable")
 
 build_map_type = ir.FunctionType(ppyobj_type,(pppyobj_type,int32))
 build_map = ir.Function(module, build_map_type, name="build_map")
+
+dict_items = ir.Function(module, fnty, name="dict_items")
+dict_items.attributes.add("uwtable")
+
 
 begin_catch_type = ir.FunctionType(ir.VoidType(), [])
 begin_catch = ir.Function(module, begin_catch_type, "__cxa_begin_catch")
@@ -356,6 +379,25 @@ def invoke(func,builder,target,args):
    builder = ir.IRBuilder(newblock)
    return newblock,builder,rval
 
+def make_lookup(name,ary):
+   #build tables
+   func = ir.Function(module, lfnty, name=name)
+   func.attributes.personality = pers
+   func.attributes.add("alwaysinline")
+   func.attributes.add("uwtable")
+   block = func.append_basic_block(name="entry")
+   builder = ir.IRBuilder(block)
+
+   g,v = emph.CreateMinimalPerfectHash({ary[i]:i for i in range(len(ary))})
+   l = len(g)
+   g = builder.bitcast(get_int_array(g),ir.ArrayType(int32,0).as_pointer())
+   v = builder.bitcast(get_int_array(v),ir.ArrayType(int32,0).as_pointer())
+   strs = builder.bitcast(get_constant(ary),make_tuple_type(0)[1])
+   
+   builder.ret(builder.call(local_lookup,(func.args[0],strs,g,v,int32(l))))
+   return func
+
+get_constant(clz("dict",("items","keys","values"),(dict_items,)))
 
 ############## Enumerate all function definitions
 i=0
@@ -371,23 +413,8 @@ for c in codes:
    #personality i8* bitcast (i32 (...)* @__gxx_personality_v0 to i8*)
    func_map[c] = func
 
-   #build tableslo
-   func = ir.Function(module, lfnty, name="code_blob_" + str(i) + "_locals")
-   func.attributes.personality = pers
-   func.attributes.add("alwaysinline")
-   func.attributes.add("uwtable")
-   block = func.append_basic_block(name="entry")
-   builder = ir.IRBuilder(block)
-
-   g,v = emph.CreateMinimalPerfectHash({c.co_names[i]:i for i in range(len(c.co_names))})
-   l = len(g)
-   g = builder.bitcast(get_int_array(g),ir.ArrayType(int32,0).as_pointer())
-   v = builder.bitcast(get_int_array(v),ir.ArrayType(int32,0).as_pointer())
-   strs = builder.bitcast(get_constant(c.co_names),make_tuple_type(0)[1])
-
-   
-   builder.ret(builder.call(local_lookup,(func.args[0],strs,g,v,int32(l))))
-   table_map[c] = func
+   #build tables
+   table_map[c] = make_lookup("code_blob_" + str(i) + "_locals", c.co_names)
    i+=1
 
 get_constant(False)
@@ -524,6 +551,7 @@ for c in codes:
 
        save_stack_ptr = stack_ptr
        if ins.opname=='LOAD_CONST':
+         print(stack_ptr)
          v = stack[stack_ptr]
          tbl = ins.argval
          tup = (type(tbl),tbl)
@@ -599,20 +627,14 @@ for c in codes:
          stack_ptr+=1
          builder.call(stackrestore,[savestack])
 
-       elif ins.opname=='CALL_FUNCTION': 
+       elif ins.opname=='CALL_FUNCTION' or ins.opname=='CALL_METHOD': 
          savestack = builder.call(stacksave,[])
          args = builder.alloca(ppyobj_type,ins.arg+1)
-         for i in range(ins.arg): 
-            builder.store(builder.load(stack[stack_ptr-1]),builder.gep(args,(int32(ins.arg - i),))) #TODO: i think args are reversed
+         cnt = ins.arg+ (2 if ins.opname=='CALL_METHOD' else 1)
+         for i in range(cnt): 
+            builder.store(builder.load(stack[stack_ptr-1]),builder.gep(args,(int32(cnt - i - 1),))) #TODO: i think args are reversed
             stack_ptr-=1
          #debug(builder,"post store " + str(ins.offset))
-
-         tgt = builder.load(stack[stack_ptr-1])
-         stack_ptr-=1
-
-         #debug(builder,"deref " + str(ins.offset))
-
-         builder.store(tgt,builder.gep(args,(int32(0),)))
 
          if len(except_stack):
             newblock,builder,rval = invoke(func,builder,call_function,(args,int64(ins.arg+1),pppytuple_type(None)))
@@ -757,16 +779,26 @@ for c in codes:
 
 
        elif ins.opname=='LOAD_METHOD': #TODO
+         v1 = builder.load(stack[stack_ptr-1])
+         stack_ptr-=1
+         v2 = builder.bitcast(get_constant(ins.argval),ppyobj_type)
          v = stack[stack_ptr]
-         builder.store(ir.Constant(ppyobj_type,None),v)
-         stack_ptr+=1         
-       elif ins.opname=='CALL_METHOD': #TODO
-         stack_ptr-=2
-         stack_ptr-=ins.arg                  
 
-         v = stack[stack_ptr]
-         builder.store(ir.Constant(ppyobj_type,None),v)
-         stack_ptr+=1
+         args = builder.alloca(ppyobj_type,2)
+         builder.store(v1,builder.gep(args,(int32(0),)))
+         builder.store(v2,builder.gep(args,(int32(1),)))
+
+         if len(except_stack):
+            newblock,builder,rval = invoke(func,builder,builtin_getattr,(args,int64(2),ppyobj_type(None)))
+            replace_block(ins,block_idx,newblock,builder)
+            builder.store(rval,stack[stack_ptr])
+         else:
+            rval = builder.call(builtin_getattr,(args,int64(2),pppytuple_type(None)))
+
+         builder.store(rval,stack[stack_ptr])
+         stack_ptr+=1      
+         builder.store(v1,stack[stack_ptr])
+         stack_ptr+=1      
        elif ins.opname=='BINARY_MULTIPLY':
          stack_ptr,builder = binary_op(func,builder,stack_ptr,"mul")
        elif ins.opname=='BINARY_ADD':
@@ -850,6 +882,11 @@ for c in codes:
            branch_stack[tgt] = stack_ptr
            did_jmp=True
            unreachable=True
+       elif ins.opname=="UNPACK_SEQUENCE": #TODO:
+           v1 = builder.load(stack[stack_ptr-1])
+           stack_ptr-=1
+
+           stack_ptr+=ins.argval
        else:
            assert(False)
 

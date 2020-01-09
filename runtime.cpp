@@ -5,7 +5,7 @@ extern "C" {
 #define register 
 #include "get_slot.cpp"
 
-const char *rtti_strings[] = {"int", "float", "tuple", "str", "code", "func", "class", "bool", "NotImplemented","exception","list","dict","object","list_iter"};
+const char *rtti_strings[] = {"int", "float", "tuple", "str", "code", "func", "class", "bool", "NotImplemented","exception","list","dict","object","list_iter","dict_view", "dict_iter"};
 
 __attribute__((noinline)) void dump(const PyObject_t *v){
    if(!v){
@@ -49,6 +49,7 @@ __attribute__((always_inline)) PyObject_t* build_map(PyObject_t **v, uint32_t le
    PyDict_t *d = (PyDict_t*)malloc(sizeof(PyDict_t));
    d->vtable = &vtable_dict;
    d->elems = new std::unordered_map<PyObject_t*,PyObject_t*>();
+   d->cls = &pyclass_dict;
    for(uint32_t i=0; i < len; i++){
       (*d->elems)[v[i*2+1]] = v[i*2];
    }
@@ -61,6 +62,34 @@ __attribute__((always_inline)) PyObject_t* store_subscr(PyObject_t *v1, PyObject
    return 0;
 }
 
+
+PyObject_t* dict_items(PyObject_t **v1, uint64_t alen, const PyTuple_t **v2){
+   printf("Items\n");
+   PyDict_View_t *ret = (PyDict_View_t*)malloc(sizeof(PyDict_View_t));
+   ret->dict = (PyDict_t*)v1[0];
+   ret->vtable = &vtable_dict_view;
+   ret->itable = 0;
+   return ret;
+}
+
+PyObject_t* dict_view_iter(PyObject_t **v1, uint64_t alen, const PyTuple_t **v2){
+   PyDict_Iterator_t *ret = (PyDict_Iterator_t*)malloc(sizeof(PyDict_Iterator_t));
+   ret->view = (PyDict_View_t*)v1[0];
+   ret->it = ret->view->dict->elems->begin();
+   ret->vtable = &vtable_dict_iter;
+   ret->itable = 0;
+   return ret;
+}
+
+PyObject_t* dict_iter_next(PyObject_t **v1, uint64_t alen, const PyTuple_t **v2){
+   PyDict_Iterator_t *iter = (PyDict_Iterator_t*)v1[0];
+   if(iter->it == iter->view->dict->elems->end()){
+      THROW();
+   } 
+   PyObject_t *ret = (*(iter->it)).first;
+   iter->it++;
+   return ret;
+}
 
 PyObject_t* builtin_getattr(PyObject_t **v1, uint64_t alen, const PyTuple_t **v2){
    dprintf("Load attr %p %p\n", v1[0], v1[1]);
@@ -88,7 +117,9 @@ PyObject_t* builtin_getattr(PyObject_t **v1, uint64_t alen, const PyTuple_t **v2
           auto it = base->attrs->find(attr->str);
           if(it != base->attrs->end())
              return (*it).second; 
-
+       }
+       if(obj->vtable->rtti == OBJECT_RTTI || obj->vtable->rtti == DICT_RTTI){
+          PyBase_t *base = (PyBase_t*)obj; //TODO: type punned for dict
           PyClass_t *cls = base->cls;
           int res = cls->locals_func(attr);
           printf("R: %d\n", res);
