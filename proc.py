@@ -558,6 +558,10 @@ for c in codes:
 
        debug(builder,"ins " + str(ins.offset))
 
+       oldstuff = None
+       if 42 in branch_stack:
+          oldstuff = branch_stack[42]
+
        save_stack_ptr = stack_ptr
        if ins.opname=='LOAD_CONST':
          print(stack_ptr)
@@ -888,7 +892,7 @@ for c in codes:
        elif ins.opname=="BREAK_LOOP":
            tgt = loop_stack[-1]
            builder.branch(blocks_by_ofs[tgt])
-           branch_stack[tgt] = stack_ptr
+           branch_stack[tgt] = stack_ptr-1
            did_jmp=True
            unreachable=True
        elif ins.opname=="UNPACK_SEQUENCE": #TODO:
@@ -907,6 +911,9 @@ for c in codes:
            builder.call(stackrestore,[savestack])
        else:
            assert(False)
+
+       if 42 in branch_stack and branch_stack[42] != oldstuff:
+          print("br stack: " + str(branch_stack[42]) + ", " + str(oldstuff))
 
        print(block.name)
 
