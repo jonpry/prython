@@ -219,6 +219,10 @@ builtin_setattr.attributes.add("uwtable")
 build_map_type = ir.FunctionType(ppyobj_type,(pppyobj_type,int32))
 build_map = ir.Function(module, build_map_type, name="build_map")
 
+build_const_key_map_type = ir.FunctionType(ppyobj_type,(pppyobj_type,int32, ppyobj_type))
+build_const_key_map = ir.Function(module, build_const_key_map_type, name="build_const_key_map")
+
+
 dict_items = ir.Function(module, fnty, name="dict_items")
 dict_items.attributes.add("uwtable")
 
@@ -635,6 +639,22 @@ for c in codes:
             stack_ptr-=1
 
          obj = builder.call(build_map,(args,int32(ins.arg)))
+
+         builder.store(obj,stack[stack_ptr])
+         stack_ptr+=1
+         builder.call(stackrestore,[savestack])
+       elif ins.opname=='BUILD_CONST_KEY_MAP':
+         keys = builder.load(stack[stack_ptr-1])
+         stack_ptr-=1
+
+         savestack = builder.call(stacksave,[])
+         args = builder.alloca(ppyobj_type,ins.arg)
+
+         for de in range(ins.arg):
+            builder.store(builder.load(stack[stack_ptr-1]),builder.gep(args,(int32(ins.arg-de-1),)))
+            stack_ptr-=1
+
+         obj = builder.call(build_const_key_map,(args,int32(ins.arg),keys))
 
          builder.store(obj,stack[stack_ptr])
          stack_ptr+=1

@@ -56,6 +56,18 @@ __attribute__((always_inline)) PyObject_t* build_map(PyObject_t **v, uint32_t le
    return d;
 }
 
+__attribute__((always_inline)) PyObject_t* build_const_key_map(PyObject_t **v, uint32_t len, PyObject_t *v2){ 
+   PyTuple_t *tup = (PyTuple_t*)v2;
+   PyDict_t *d = (PyDict_t*)malloc(sizeof(PyDict_t));
+   d->vtable = &vtable_dict;
+   d->elems = new std::unordered_map<PyObject_t*,PyObject_t*>();
+   d->cls = &pyclass_dict;
+   for(uint32_t i=0; i < len; i++){
+      (*d->elems)[tup->objs[i]] = v[i];
+   }
+   return d;
+}
+
 __attribute__((always_inline)) PyObject_t* store_subscr(PyObject_t *v1, PyObject_t *v2, PyObject_t *v3){ 
    PyDict_t *d = (PyDict_t*)v2;
    (*d->elems)[v1] = v3;
