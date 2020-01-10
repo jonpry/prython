@@ -255,6 +255,13 @@ __attribute__((always_inline)) PyObject_t* load_name(PyObject_t *v1, PyObject_t*
    return v1;
 }
 
+__attribute__((always_inline)) PyObject_t* unpack_sequence(PyObject_t **v1, uint64_t alen, PyTuple_t* v2){
+   PyTuple_t *tup=(PyTuple_t*)v2;
+   for(uint64_t i=0; i < alen; i++){
+      v1[i] = tup->objs[alen-i-1];
+   }
+   return 0;
+}
 
 __attribute__((always_inline)) PyObject_t* call_function(PyObject_t **v1, uint64_t alen, PyTuple_t** v2){
     PyObject_t *tgt = (PyObject_t*)v1[0];

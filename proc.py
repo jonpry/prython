@@ -186,6 +186,9 @@ import_name = ir.Function(module, import_name_type, name="import_name")
 load_name_type = ir.FunctionType(ppyobj_type, (ppyobj_type, ppyobj_type))
 load_name = ir.Function(module, load_name_type, name="load_name")
 
+unpack_sequence_type = ir.FunctionType(ppyobj_type, (pppyobj_type, int64, ppyobj_type))
+unpack_sequence = ir.Function(module, unpack_sequence_type, name="unpack_sequence")
+
 list_append_type = ir.FunctionType(ppyobj_type, (ppyobj_type, ppyobj_type))
 list_append = ir.Function(module, list_append_type, name="list_append")
 
@@ -892,7 +895,16 @@ for c in codes:
            v1 = builder.load(stack[stack_ptr-1])
            stack_ptr-=1
 
-           stack_ptr+=ins.argval
+           savestack = builder.call(stacksave,[])
+           args = builder.alloca(ppyobj_type,ins.arg)
+
+           builder.call(unpack_sequence, [args, int64(ins.arg), v1])
+
+           for de in range(ins.arg):
+              builder.store(builder.load(builder.gep(args,(int32(de),))),stack[stack_ptr])
+              stack_ptr+=1
+
+           builder.call(stackrestore,[savestack])
        else:
            assert(False)
 
