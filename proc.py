@@ -130,7 +130,7 @@ def get_constant(con,name=""):
 integrals = {"int" : { "mul" , "add", "xor", "or", "and", "radd", "mod", "floordiv", "float", "str", "gt", "lt", "le", "ge", "ne", "eq", "neg" }, 
              "float" : { "mul", "add", "sub", "pow", "radd", "rmul", "rsub", "rpow", "mod", "truediv", "rmod", "rtruediv",
                          "floordiv", "rfloordiv", "str"},
-             "tuple" : { "str", "getitem" }, 
+             "tuple" : { "str", "getitem", "len" }, 
              "str" : { "add", "str", "getitem", "hash"}, 
              "code" : {}, 
              "func" : { "str"}, 
@@ -138,12 +138,13 @@ integrals = {"int" : { "mul" , "add", "xor", "or", "and", "radd", "mod", "floord
              "bool" : { "str" }, 
              "NotImplemented" : {},
              "exception" : {},
-             "list" : { "str", "iter"}, 
-             "dict" : { "getitem", "str"}, 
+             "list" : { "str", "iter", "getitem", "en"}, 
+             "dict" : { "getitem", "str", "len"}, 
              "object" : {},
              "list_iter" : {"next"},
              "dict_view" : { "iter" },
-             "dict_iter" : { "next" } }
+             "dict_iter" : { "next" },
+             "slice" : {} }
 
 vtable_map = {}
 table_map = {}
@@ -207,8 +208,17 @@ builtin_repr.attributes.add("uwtable")
 builtin_str = ir.Function(module, fnty, name="builtin_str")
 builtin_str.attributes.add("uwtable")
 
+builtin_slice = ir.Function(module, fnty, name="builtin_slice")
+builtin_slice.attributes.add("uwtable")
+
 builtin_new = ir.Function(module, fnty, name="builtin_new")
 builtin_new.attributes.add("uwtable")
+
+builtin_len = ir.Function(module, fnty, name="builtin_len")
+builtin_len.attributes.add("uwtable")
+
+builtin_hash = ir.Function(module, fnty, name="builtin_hash")
+builtin_hash.attributes.add("uwtable")
 
 builtin_getattr = ir.Function(module, fnty, name="builtin_getattr")
 builtin_getattr.attributes.add("uwtable")
@@ -412,6 +422,34 @@ def make_lookup(name,ary):
 
 get_constant(clz("dict",("items","keys","values"),(dict_items,dict_keys,dict_values)))
 
+def pop_and_call(builder,func,stack_ptr, tgt, stack_vals, constants):
+   savestack = builder.call(stacksave,[])
+
+   args = builder.alloca(ppyobj_type,len(stack_vals) + len(constants))
+
+   for de in range(len(stack_vals)):
+      v1 = builder.load(stack[stack_ptr-1-stack_vals[de]])
+      builder.store(v1,builder.gep(args,(int32(de),)))
+  
+   stack_ptr-=len(stack_vals)
+
+   for de in range(len(constants)):
+      builder.store(constants[de],builder.gep(args,(int32(len(stack_vals)+de),)))
+
+   v = stack[stack_ptr]
+
+   if len(except_stack):
+      newblock,builder,rval = invoke(func,builder,tgt,(args,int64(len(stack_vals)+len(constants)),ppyobj_type(None)))
+      replace_block(ins,block_idx,newblock,builder)
+      builder.store(rval,stack[stack_ptr])
+   else:
+      rval = builder.call(tgt,(args,int64(len(stack_vals)+len(constants)),pppytuple_type(None)))
+
+   builder.store(rval,stack[stack_ptr])
+   stack_ptr+=1
+   builder.call(stackrestore,[savestack])
+   return stack_ptr
+
 ############## Enumerate all function definitions
 i=0
 codes.reverse()
@@ -452,7 +490,7 @@ def replace_block(ins,block_idx,newblock,builder):
    blocks[block_idx][2] = newblock
    blocks[block_idx][3] = builder                
 
-builtin_names = ["buildclass", "str", "repr", "getattr", "setattr", "print_wrap", "new"]
+builtin_names = ["buildclass", "str", "repr", "getattr", "setattr", "print_wrap", "new", "len", "hash"]
 for n in builtin_names:
    get_constant(locals()['builtin_' + n])
 
@@ -631,6 +669,7 @@ for c in codes:
          builder.store(builder.bitcast(obj,ppyobj_type),stack[stack_ptr])
          stack_ptr+=1
        elif ins.opname=='BUILD_MAP':
+        
          savestack = builder.call(stacksave,[])
          args = builder.alloca(ppyobj_type,ins.arg*2)
 
@@ -737,25 +776,9 @@ for c in codes:
 
          fbuild.ret(fbuild.load(stack[stack_ptr-1]))
          stack_ptr-=1
-       elif ins.opname=='LOAD_ATTR': #TODO:
-         v1 = builder.load(stack[stack_ptr-1])
-         stack_ptr-=1
-         v2 = builder.bitcast(get_constant(ins.argval),ppyobj_type)
-         v = stack[stack_ptr]
+       elif ins.opname=='LOAD_ATTR': 
+         stack_ptr = pop_and_call(builder,func,stack_ptr,builtin_getattr, [0], [builder.bitcast(get_constant(ins.argval),ppyobj_type)])
 
-         args = builder.alloca(ppyobj_type,2)
-         builder.store(v1,builder.gep(args,(int32(0),)))
-         builder.store(v2,builder.gep(args,(int32(1),)))
-
-         if len(except_stack):
-            newblock,builder,rval = invoke(func,builder,builtin_getattr,(args,int64(2),ppyobj_type(None)))
-            replace_block(ins,block_idx,newblock,builder)
-            builder.store(rval,stack[stack_ptr])
-         else:
-            rval = builder.call(builtin_getattr,(args,int64(2),pppytuple_type(None)))
-
-         builder.store(rval,stack[stack_ptr])
-         stack_ptr+=1
        elif ins.opname=='STORE_ATTR': 
          v1 = builder.load(stack[stack_ptr-1])
          stack_ptr-=1
@@ -915,7 +938,7 @@ for c in codes:
            branch_stack[tgt] = stack_ptr-1
            did_jmp=True
            unreachable=True
-       elif ins.opname=="UNPACK_SEQUENCE": #TODO:
+       elif ins.opname=="UNPACK_SEQUENCE": 
            v1 = builder.load(stack[stack_ptr-1])
            stack_ptr-=1
 
@@ -929,6 +952,8 @@ for c in codes:
               stack_ptr+=1
 
            builder.call(stackrestore,[savestack])
+       elif ins.opname=='BUILD_SLICE': 
+           stack_ptr = pop_and_call(builder,func,stack_ptr,builtin_slice, range(ins.arg), [])
        else:
            assert(False)
 

@@ -5,7 +5,7 @@ extern "C" {
 #define register 
 #include "get_slot.cpp"
 
-const char *rtti_strings[] = {"int", "float", "tuple", "str", "code", "func", "class", "bool", "NotImplemented","exception","list","dict","object","list_iter","dict_view", "dict_iter"};
+const char *rtti_strings[] = {"int", "float", "tuple", "str", "code", "func", "class", "bool", "NotImplemented","exception","list","dict","object","list_iter","dict_view", "dict_iter", "slice"};
 
 __attribute__((noinline)) void dump(const PyObject_t *v){
    if(!v){
@@ -83,6 +83,27 @@ static PyObject_t* dict_items_int(PyObject_t **v1, int type){
    ret->type = type;
    return ret;
 }
+
+PyObject_t* builtin_slice(PyObject_t **v1, uint64_t alen, const PyTuple_t **v2){
+   PySlice_t *slice = (PySlice_t*)malloc(sizeof(PySlice_t));
+   slice->vtable = &vtable_slice;
+   slice->itable = 0;
+   slice->start = (PyInt_t*)v1[0];
+   slice->stop = (PyInt_t*)v1[1];
+   if(alen>2)
+     slice->step = (PyInt_t*)v1[2];
+   return slice;
+}
+
+PyObject_t* dict_len(PyObject_t **v1, uint64_t alen, const PyTuple_t **v2){
+   PyDict_t *dict = (PyDict_t*)v1[0];
+   PyInt_t *ret = (PyInt_t*)malloc(sizeof(PyInt_t));
+   ret->vtable = &vtable_int;
+   ret->itable=0;
+   ret->val = dict->elems->size();
+   return ret;
+}
+
 
 PyObject_t* dict_items(PyObject_t **v1, uint64_t alen, const PyTuple_t **v2){
    return dict_items_int(v1,DICTVIEW_ITEMS);
@@ -179,6 +200,31 @@ PyObject_t* builtin_getattr(PyObject_t **v1, uint64_t alen, const PyTuple_t **v2
    return v1[0];
 }
 
+PyObject_t* builtin_len(PyObject_t **v1, uint64_t alen, PyTuple_t **v2){
+    PyObject_t *obj = v1[0];
+    if(obj->itable && obj->itable->dispatch[LEN_SLOT]->vtable->rtti != NOIMP_RTTI){
+         return ((PyFunc_t*)obj->itable->dispatch[LEN_SLOT])->code->func(v1,alen,v2);
+    }
+    if(obj->vtable->dispatch[LEN_SLOT]->vtable->rtti != NOIMP_RTTI){
+         return ((PyFunc_t*)obj->vtable->dispatch[LEN_SLOT])->code->func(v1,alen,v2);
+    }
+    THROW();
+    return 0;
+}
+
+PyObject_t* builtin_hash(PyObject_t **v1, uint64_t alen, PyTuple_t **v2){
+    PyObject_t *obj = v1[0];
+    if(obj->itable && obj->itable->dispatch[HASH_SLOT]->vtable->rtti != NOIMP_RTTI){
+         return ((PyFunc_t*)obj->itable->dispatch[HASH_SLOT])->code->func(v1,alen,v2);
+    }
+    if(obj->vtable->dispatch[HASH_SLOT]->vtable->rtti != NOIMP_RTTI){
+         return ((PyFunc_t*)obj->vtable->dispatch[HASH_SLOT])->code->func(v1,alen,v2);
+    }
+    THROW();
+    return 0;
+}
+
+
 PyObject_t* builtin_setattr(PyObject_t **v1, uint64_t alen, const PyTuple_t **v2){
    printf("Set attr %p %p %p\n", v1[0], v1[1], v1[2]);
    dump(v1[0]);
@@ -238,6 +284,10 @@ __attribute__((always_inline)) PyObject_t* load_name(PyObject_t *v1, PyObject_t*
    if(!v1 || v1->vtable->rtti == NOIMP_RTTI){
       PyStr_t *str=(PyStr_t*)v2;
       //TODO: use mph
+      if(strcmp(str->str,"hash") == 0)
+         return &pyfunc_builtin_hash;
+      if(strcmp(str->str,"len") == 0)
+         return &pyfunc_builtin_len;
       if(strcmp(str->str,"print") == 0)
          return &pyfunc_builtin_print_wrap;
       if(strcmp(str->str,"str") == 0)
@@ -438,6 +488,38 @@ PyObject_t* tuple_getitem(PyObject_t **v1, uint64_t alen, PyTuple_t **v2){
     PyInt_t *i = (PyInt_t*)v1[1];
     return t->objs[i->val];   
 }
+
+PyObject_t* tuple_len(PyObject_t **v1, uint64_t alen, PyTuple_t **v2){
+    PyTuple_t *t = (PyTuple_t*)v1[0];
+    PyInt_t *i = (PyInt_t*)malloc(sizeof(PyInt_t*));
+    i->vtable = &vtable_int;
+    i->itable = 0;
+    i->val = t->sz;
+    return i;   
+}
+
+PyObject_t* list_len(PyObject_t **v1, uint64_t alen, PyTuple_t **v2){
+    PyList_t *t = (PyList_t*)v1[0];
+    PyInt_t *i = (PyInt_t*)malloc(sizeof(PyInt_t*));
+    i->vtable = &vtable_int;
+    i->itable = 0;
+    i->val = t->sz;
+    return i;   
+}
+
+PyObject_t* list_getitem(PyObject_t **v1, uint64_t alen, PyTuple_t **v2){
+    PyList_t *t = (PyList_t*)v1[0];
+
+    printf("List getitem\n");
+    dump(v1[1]);
+    if(v1[1]->vtable->rtti == SLICE_RTTI){
+       PySlice_t *slice = (PySlice_t*)v1[1];
+       THROW();
+    }
+    PyInt_t *i = (PyInt_t*)v1[1];
+    return t->objs[i->val];   
+}
+
 
 PyObject_t* join(PyObject_t *v1, PyObject_t *v2, char left, char right){
     PyTuple_t *t = (PyTuple_t*)v1;

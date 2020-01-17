@@ -51,7 +51,7 @@ typedef struct {
   pyobj *dispatch[100]; //TODO: this has to be right, hard to sync with dump.py
 } vtable_t;
 
-extern const vtable_t vtable_int, vtable_float, vtable_str, vtable_code, vtable_tuple, vtable_func, vtable_class, vtable_bool, vtable_NotImplemented, vtable_object, vtable_dict, vtable_list_iter, vtable_dict_view, vtable_dict_iter;
+extern const vtable_t vtable_int, vtable_float, vtable_str, vtable_code, vtable_tuple, vtable_func, vtable_class, vtable_bool, vtable_NotImplemented, vtable_object, vtable_dict, vtable_list_iter, vtable_dict_view, vtable_dict_iter, vtable_slice;
 
 typedef class pyobj {
 public:
@@ -149,12 +149,18 @@ public:
    std::unordered_map<PyObject_t*,PyObject_t*>::iterator it;
 } PyDict_Iterator_t;
 
+typedef class pyslice : public pyobj {
+public:
+   PyInt_t *start,*stop,*step;
+} PySlice_t;
+
 extern PyNoImp_t global_noimp;
 extern PyBool_t global_false, global_true;
 extern PyFunc_t pyfunc_builtin_print_wrap, pyfunc_builtin_str, 
                 pyfunc_builtin_repr, pyfunc_builtin_getattr, 
                 pyfunc_builtin_setattr, pyfunc_builtin_buildclass,
-                pyfunc_builtin_new;
+                pyfunc_builtin_new, pyfunc_builtin_len,
+                pyfunc_builtin_hash;
 
 extern PyClass_t pyclass_dict;
 
