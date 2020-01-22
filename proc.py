@@ -58,6 +58,9 @@ class clz:
       self.ary = ary
       self.funcs = funcs
 
+def obj_con(s):
+  return [vtable_map[s],pvtable_type(None),ppyclass_type(None),int64(None)]
+
 ############## This function creates a global variables decleration for any compile time constants
 def get_constant(con,name=""):
    const_idx = len(const_map)
@@ -72,24 +75,24 @@ def get_constant(con,name=""):
    if type(con) == int:
       g = ir.GlobalVariable(module,pyint_type,"global_" + str(const_idx))
       const_map[tup] = g
-      g.initializer = pyint_type([[vtable_map['int'],pvtable_type(None)],ir.Constant(int64,con)])
+      g.initializer = pyint_type([obj_con('int'),ir.Constant(int64,con)])
    elif type(con) == bool:
       g = ir.GlobalVariable(module,pybool_type,"global_" + str(con).lower())
       const_map[tup] = g
-      g.initializer = pybool_type([[vtable_map['bool'],pvtable_type(None)],ir.Constant(int64,int(con))])
+      g.initializer = pybool_type([obj_con('bool'),ir.Constant(int64,int(con))])
    elif type(con) == float:
       g = ir.GlobalVariable(module,pyfloat_type,"global_" + str(const_idx))
       const_map[tup] = g
-      g.initializer = pyfloat_type([[vtable_map['float'],pvtable_type(None)],ir.Constant(dbl,con)])
+      g.initializer = pyfloat_type([obj_con('float'),ir.Constant(dbl,con)])
    elif isinstance(con,str):
       t,p = make_str_type(len(con)+1)
       g = ir.GlobalVariable(module,t,"global_" + str(const_idx) + name)
       const_map[tup] = g
-      g.initializer = t([[vtable_map['str'],pvtable_type(None)],int64(len(con)),ir.Constant(ir.ArrayType(char,len(con)+1),bytearray(con + "\0",'utf8'))])
+      g.initializer = t([obj_con('str'),int64(len(con)),ir.Constant(ir.ArrayType(char,len(con)+1),bytearray(con + "\0",'utf8'))])
    elif isinstance(con, types.CodeType):
       g = ir.GlobalVariable(module,pycode_type,"global_" + str(const_idx))
       const_map[tup] = g
-      g.initializer = pycode_type([[vtable_map['code'],pvtable_type(None)], func_map[con], table_map[con], get_constant(con.co_names).bitcast(make_tuple_type(0)[1])])
+      g.initializer = pycode_type([obj_con('code'), func_map[con], table_map[con], get_constant(con.co_names).bitcast(make_tuple_type(0)[1])])
    elif isinstance(con, tuple):
       t,p = make_tuple_type(len(con))
       g = ir.GlobalVariable(module,t,"global_" + str(const_idx))
@@ -98,16 +101,16 @@ def get_constant(con,name=""):
       for c in con:
         c = get_constant(c)
         cons.append(c.bitcast(ppyobj_type) if c else None)
-      g.initializer = t([[vtable_map['tuple'],pvtable_type(None)], int64(len(con)), ir.ArrayType(ppyobj_type,len(con))(cons)])    
+      g.initializer = t([obj_con('tuple'), int64(len(con)), ir.ArrayType(ppyobj_type,len(con))(cons)])    
    elif isinstance(con, ir.Function):
       c = ir.GlobalVariable(module,pycode_type,"global_" + str(const_idx))      
       const_map[c] = c
       c.global_constant = True
-      c.initializer = pycode_type([[vtable_map['code'],pvtable_type(None)],con,lfnty.as_pointer()(None), make_tuple_type(0)[1](None)])
+      c.initializer = pycode_type([obj_con('code'),con,lfnty.as_pointer()(None), make_tuple_type(0)[1](None)])
 
       g = ir.GlobalVariable(module,pyfunc_type,"pyfunc_" + con.name)      
       const_map[tup] = g
-      g.initializer = pyfunc_type([[vtable_map['func'],pvtable_type(None)],c,get_constant(con.name).bitcast(ppystr_type),make_tuple_type(0)[1](None), ppyclass_type(None)])
+      g.initializer = pyfunc_type([obj_con('func'),c,get_constant(con.name).bitcast(ppystr_type),make_tuple_type(0)[1](None), ppyclass_type(None)])
    elif isinstance(con,clz):
       lookup = make_lookup(con.name + "_lookup",con.ary)
       name = get_constant(con.name).bitcast(ppystr_type)
@@ -115,7 +118,7 @@ def get_constant(con,name=""):
       tgts = get_constant(con.funcs).bitcast(ppytuple_type)
       g = ir.GlobalVariable(module,pyclass_type,"pyclass_" + con.name)      
       const_map[tup] = g
-      g.initializer = pyclass_type([[vtable_map[con.name],pvtable_type(None)],name,ppyfunc_type(None),lookup,locs,tgts])
+      g.initializer = pyclass_type([obj_con(con.name),name,ppyfunc_type(None),lookup,locs,tgts])
    elif isinstance(con,ir.values.Constant):
       return con
    else:
@@ -165,7 +168,7 @@ for t in integrals.keys():
    g.global_constant = True
    i+=1
 
-noimp.initializer = pynoimp_type([[vtable_map['NotImplemented'],pvtable_type(None)]])
+noimp.initializer = pynoimp_type([obj_con('NotImplemented')])
 
 ############## These functions are implemented in C
 malloc_type = ir.FunctionType(int8.as_pointer(), (int64,))
@@ -648,6 +651,8 @@ for c in codes:
          obj = builder.bitcast(builder.call(malloc,[int64(p.pointee.get_abi_size(td))]),p)
          builder.store(vtable_map["tuple"],builder.gep(obj,(int32(0),int32(0),int32(0))))
          builder.store(pvtable_type(None),builder.gep(obj,(int32(0),int32(0),int32(1))))
+         builder.store(ppyclass_type(None),builder.gep(obj,(int32(0),int32(0),int32(2))))
+         builder.store(int64(0),builder.gep(obj,(int32(0),int32(0),int32(3))))
          builder.store(int64(ins.arg),builder.gep(obj,(int32(0),int32(1))))
          for te in range(ins.arg):
             builder.store(builder.load(stack[stack_ptr-1]),builder.gep(obj,(int32(0),int32(2),int32(te))))
@@ -658,6 +663,8 @@ for c in codes:
          obj = builder.bitcast(builder.call(malloc,[int64(pylist_type.get_abi_size(td))]),ppylist_type)
          builder.store(vtable_map["list"],builder.gep(obj,(int32(0),int32(0),int32(0))))
          builder.store(pvtable_type(None),builder.gep(obj,(int32(0),int32(0),int32(1))))
+         builder.store(ppyclass_type(None),builder.gep(obj,(int32(0),int32(0),int32(2))))
+         builder.store(int64(0),builder.gep(obj,(int32(0),int32(0),int32(3))))
          builder.store(int64(ins.arg),builder.gep(obj,(int32(0),int32(1))))
          builder.store(int64(ins.arg),builder.gep(obj,(int32(0),int32(2))))
          data = builder.bitcast(builder.call(malloc,[int64(pppyobj_type.get_abi_size(td))]),pppyobj_type)
@@ -736,6 +743,9 @@ for c in codes:
          obj = builder.bitcast(builder.call(malloc,[int64(pyfunc_type.get_abi_size(td))]),ppyfunc_type)
          builder.store(vtable_map['func'],builder.gep(obj,(int32(0),int32(0),int32(0))))
          builder.store(pvtable_type(None),builder.gep(obj,(int32(0),int32(0),int32(1))))
+         builder.store(ppyclass_type(None),builder.gep(obj,(int32(0),int32(0),int32(2))))
+         builder.store(int64(0),builder.gep(obj,(int32(0),int32(0),int32(3))))
+
          builder.store(builder.bitcast(code,ppycode_type),builder.gep(obj,(int32(0),int32(1))))
          builder.store(builder.bitcast(func_name,ppystr_type),builder.gep(obj,(int32(0),int32(2))))
          if args:

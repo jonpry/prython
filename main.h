@@ -53,10 +53,14 @@ typedef struct {
 
 extern const vtable_t vtable_int, vtable_float, vtable_str, vtable_code, vtable_tuple, vtable_func, vtable_class, vtable_bool, vtable_NotImplemented, vtable_object, vtable_dict, vtable_list_iter, vtable_dict_view, vtable_dict_iter, vtable_slice;
 
+class pyclass;
+
 typedef class pyobj {
 public:
   const vtable_t *vtable;
   vtable_t *itable;
+  class pyclass *cls;
+  uint64_t ncls;
 } PyObject_t;
 
 typedef class pyint : public pyobj {
@@ -121,13 +125,11 @@ public:
 
 typedef class pybase : public pyobj {
 public:
-   PyClass_t *cls;
    std::unordered_map<std::string,PyObject_t*> *attrs;
 } PyBase_t;
 
 typedef class pydict : public pyobj {
 public:
-   PyClass_t *cls;
    std::unordered_map<PyObject_t*,PyObject_t*> *elems;
 } PyDict_t;
 
@@ -174,6 +176,7 @@ __attribute__((always_inline)) PyObject_t* f(PyObject_t **v1, uint64_t alen, PyT
    ret->val =  op; \
    ret->vtable = &v; \
    ret->itable = 0; \
+   ret->cls = 0; \
    return ret; \
 }
 
@@ -194,6 +197,7 @@ __attribute__((always_inline)) PyObject_t* f(PyObject_t **v1, uint64_t alen, PyT
    ret->val =  op; \
    ret->vtable = &v; \
    ret->itable = 0; \
+   ret->cls = 0; \
    return ret; \
 }
 
@@ -213,6 +217,7 @@ __attribute__((always_inline)) PyObject_t* f(PyObject_t **v1, uint64_t alen, PyT
    ret->val = __VA_ARGS__ ;\
    ret->vtable = &v; \
    ret->itable = 0; \
+   ret->cls = 0; \
    return ret; \
 }
 

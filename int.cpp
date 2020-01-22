@@ -29,6 +29,7 @@ PyObject_t* int_str(PyObject_t **v1, uint64_t alen, PyTuple_t **v2){
     ret->sz = strlen(buf);
     ret->vtable = &vtable_str;
     ret->itable = 0;
+    ret->cls = 0;
     strcpy(ret->str,buf);
     return ret;
 }
@@ -38,6 +39,7 @@ __attribute__((always_inline)) PyObject_t* int_float(PyObject_t **v1, uint64_t a
    ret->val = ((PyInt_t*)(v1[0]))->val; 
    ret->vtable = &vtable_float; 
    ret->itable = 0;
+   ret->cls = 0;
    return ret; 
 }
 

@@ -41,8 +41,11 @@ def make_tuple_type(l,name=None):
 vtable_type = ir.global_context.get_identified_type("struct.vtable_t")
 pvtable_type = vtable_type.as_pointer() 
 
+pyclass_type = ir.global_context.get_identified_type("class.pyclass")
+ppyclass_type = pyclass_type.as_pointer()
+
 pyobj_type = ir.global_context.get_identified_type("class.pyobj")
-pyobj_type.set_body(pvtable_type,pvtable_type)
+pyobj_type.set_body(pvtable_type,pvtable_type, ppyclass_type, int64)
 ppyobj_type = pyobj_type.as_pointer()
 pppyobj_type = ppyobj_type.as_pointer()
 ppppyobj_type = pppyobj_type.as_pointer()
@@ -72,9 +75,6 @@ pycode_type.set_body(pyobj_type, fnty.as_pointer(),lfnty.as_pointer(), make_tupl
 ppycode_type = pycode_type.as_pointer()
 
 pystr_type, ppystr_type = make_str_type(0,"class.pystr")
-
-pyclass_type = ir.global_context.get_identified_type("class.pyclass")
-ppyclass_type = pyclass_type.as_pointer()
 
 pyfunc_type.set_body(pyobj_type, ppycode_type, ppystr_type, make_tuple_type(0)[1], ppyclass_type)
 
