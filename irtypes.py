@@ -45,7 +45,7 @@ pyclass_type = ir.global_context.get_identified_type("class.pyclass")
 ppyclass_type = pyclass_type.as_pointer()
 
 pyobj_type = ir.global_context.get_identified_type("class.pyobj")
-pyobj_type.set_body(pvtable_type,pvtable_type, ppyclass_type, int64)
+pyobj_type.set_body(pvtable_type,pvtable_type, ppyclass_type)
 ppyobj_type = pyobj_type.as_pointer()
 pppyobj_type = ppyobj_type.as_pointer()
 ppppyobj_type = pppyobj_type.as_pointer()
@@ -78,7 +78,7 @@ pystr_type, ppystr_type = make_str_type(0,"class.pystr")
 
 pyfunc_type.set_body(pyobj_type, ppycode_type, ppystr_type, make_tuple_type(0)[1], ppyclass_type)
 
-pyclass_type.set_body(pyobj_type, make_str_type(0)[1] ,ppyfunc_type,lfnty.as_pointer(), make_tuple_type(0)[1], make_tuple_type(0)[1])
+pyclass_type.set_body(pyobj_type, make_str_type(0)[1] ,ppyfunc_type,lfnty.as_pointer(), make_tuple_type(0)[1], make_tuple_type(0)[1], int64, ir.ArrayType(ppyclass_type,0))
 
 pybool_type = ir.global_context.get_identified_type("PyBool")
 pybool_type.set_body(pyobj_type, int64)

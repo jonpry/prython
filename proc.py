@@ -59,7 +59,7 @@ class clz:
       self.funcs = funcs
 
 def obj_con(s):
-  return [vtable_map[s],pvtable_type(None),ppyclass_type(None),int64(None)]
+  return [vtable_map[s],pvtable_type(None),ppyclass_type(None)]
 
 ############## This function creates a global variables decleration for any compile time constants
 def get_constant(con,name=""):
@@ -118,7 +118,7 @@ def get_constant(con,name=""):
       tgts = get_constant(con.funcs).bitcast(ppytuple_type)
       g = ir.GlobalVariable(module,pyclass_type,"pyclass_" + con.name)      
       const_map[tup] = g
-      g.initializer = pyclass_type([obj_con(con.name),name,ppyfunc_type(None),lookup,locs,tgts])
+      g.initializer = pyclass_type([obj_con(con.name),name,ppyfunc_type(None),lookup,locs,tgts,int64(0),ir.ArrayType(ppyclass_type,0)(None)])
    elif isinstance(con,ir.values.Constant):
       return con
    else:
@@ -652,7 +652,6 @@ for c in codes:
          builder.store(vtable_map["tuple"],builder.gep(obj,(int32(0),int32(0),int32(0))))
          builder.store(pvtable_type(None),builder.gep(obj,(int32(0),int32(0),int32(1))))
          builder.store(ppyclass_type(None),builder.gep(obj,(int32(0),int32(0),int32(2))))
-         builder.store(int64(0),builder.gep(obj,(int32(0),int32(0),int32(3))))
          builder.store(int64(ins.arg),builder.gep(obj,(int32(0),int32(1))))
          for te in range(ins.arg):
             builder.store(builder.load(stack[stack_ptr-1]),builder.gep(obj,(int32(0),int32(2),int32(te))))
@@ -664,7 +663,6 @@ for c in codes:
          builder.store(vtable_map["list"],builder.gep(obj,(int32(0),int32(0),int32(0))))
          builder.store(pvtable_type(None),builder.gep(obj,(int32(0),int32(0),int32(1))))
          builder.store(ppyclass_type(None),builder.gep(obj,(int32(0),int32(0),int32(2))))
-         builder.store(int64(0),builder.gep(obj,(int32(0),int32(0),int32(3))))
          builder.store(int64(ins.arg),builder.gep(obj,(int32(0),int32(1))))
          builder.store(int64(ins.arg),builder.gep(obj,(int32(0),int32(2))))
          data = builder.bitcast(builder.call(malloc,[int64(pppyobj_type.get_abi_size(td))]),pppyobj_type)
@@ -744,7 +742,6 @@ for c in codes:
          builder.store(vtable_map['func'],builder.gep(obj,(int32(0),int32(0),int32(0))))
          builder.store(pvtable_type(None),builder.gep(obj,(int32(0),int32(0),int32(1))))
          builder.store(ppyclass_type(None),builder.gep(obj,(int32(0),int32(0),int32(2))))
-         builder.store(int64(0),builder.gep(obj,(int32(0),int32(0),int32(3))))
 
          builder.store(builder.bitcast(code,ppycode_type),builder.gep(obj,(int32(0),int32(1))))
          builder.store(builder.bitcast(func_name,ppystr_type),builder.gep(obj,(int32(0),int32(2))))

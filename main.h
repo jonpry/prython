@@ -60,7 +60,6 @@ public:
   const vtable_t *vtable;
   vtable_t *itable;
   class pyclass *cls;
-  uint64_t ncls;
 } PyObject_t;
 
 typedef class pyint : public pyobj {
@@ -121,6 +120,8 @@ public:
   lfnty  locals_func;
   PyTuple_t *locals;
   PyTuple_t *values;
+  uint64_t nbases;
+  class pyclass *bases[];
 } PyClass_t;
 
 typedef class pybase : public pyobj {
