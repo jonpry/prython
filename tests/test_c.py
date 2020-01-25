@@ -6,7 +6,10 @@ class Foo(object):
    def __init__(self,a):
       setattr(self,'b',a)
 
-print(Foo.c)
+class Foo2(Foo,object):
+   e = 3
+
+print(Foo2.c)
 f = Foo(2)
 setattr(f,'e',7)
 print(f.e)

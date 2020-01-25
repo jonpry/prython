@@ -60,11 +60,11 @@ fnty = ir.FunctionType(ppyobj_type, (pppyobj_type, int64, pppytuple_type))
 vlist = [ir.IntType(64),ir.ArrayType(ppyobj_type,len(magic_methods))]
 vtable_type.set_body(*vlist)
 
-pyint_type = ir.global_context.get_identified_type("PyInt")
+pyint_type = ir.global_context.get_identified_type("class.pyint")
 pyint_type.set_body(pyobj_type, int64)
 ppyint_type = pyint_type.as_pointer()
 
-pyfloat_type = ir.global_context.get_identified_type("PyFloat")
+pyfloat_type = ir.global_context.get_identified_type("class.pyfloat")
 pyfloat_type.set_body(pyobj_type, dbl)
 ppyfloat_type = pyfloat_type.as_pointer()
 
@@ -80,7 +80,7 @@ pyfunc_type.set_body(pyobj_type, ppycode_type, ppystr_type, make_tuple_type(0)[1
 
 pyclass_type.set_body(pyobj_type, make_str_type(0)[1] ,ppyfunc_type,lfnty.as_pointer(), make_tuple_type(0)[1], make_tuple_type(0)[1], int64, ir.ArrayType(ppyclass_type,0))
 
-pybool_type = ir.global_context.get_identified_type("PyBool")
+pybool_type = ir.global_context.get_identified_type("class.pybool")
 pybool_type.set_body(pyobj_type, int64)
 ppybool_type = pybool_type.as_pointer()
 
@@ -96,5 +96,17 @@ pylist_type = ir.global_context.get_identified_type("PyList")
 pylist_type.set_body(pyobj_type,int64,int64,pppyobj_type)
 ppylist_type = pylist_type.as_pointer()
 
+############## Tuples of different length require different types for static initializers
+class_types = {0 : (pyclass_type, ppyclass_type)}
+def make_class_type(l,name=None):
+   global int64,char,class_types,pyobj_type,ppyobj_type
+   if l in class_types:
+      return class_types[l]
+   t = ir.global_context.get_identified_type(name if name else ("PyClass" + str(l)))
+   t.set_body(pyobj_type, make_str_type(0)[1] ,ppyfunc_type,lfnty.as_pointer(), make_tuple_type(0)[1], make_tuple_type(0)[1], int64, ir.ArrayType(ppyclass_type,l))
+
+   p = t.as_pointer()
+   class_types[l] = (t,p)
+   return t,p
 
 

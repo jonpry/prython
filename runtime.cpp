@@ -165,6 +165,44 @@ PyObject_t* dict_iter_next(PyObject_t **v1, uint64_t alen, const PyTuple_t **v2)
    return ret;
 }
 
+PyObject_t* getattr_noslot(PyObject_t *obj, PyStr_t *attr){
+   printf("NS\n");
+   dump(obj);
+   if(obj->vtable->rtti == CLASS_RTTI){
+      PyClass_t *cls = (PyClass_t*)obj;
+      printf("Nbases: %d\n", cls->nbases);
+
+      int res = cls->locals_func(attr);
+      if(res >= 0 && cls->values->objs[res]->vtable->rtti != NOIMP_RTTI)
+         return cls->values->objs[res];
+      for(int i=0; i < cls->nbases; i++){
+         PyObject_t *ret = getattr_noslot(cls->bases[i], attr);
+         if(ret->vtable->rtti != NOIMP_RTTI)
+            return ret;
+      }
+   }
+   if(obj->vtable->rtti == OBJECT_RTTI){
+      PyBase_t *base = (PyBase_t*)obj;
+      auto it = base->attrs->find(attr->str);
+      if(it != base->attrs->end())
+         return (*it).second; 
+   }
+   if(obj->cls){
+      PyClass_t *cls = obj->cls;
+      int res = cls->locals_func(attr);
+      printf("R: %d\n", res);
+      if(res >= 0 && cls->values->objs[res]->vtable->rtti != NOIMP_RTTI){
+         return cls->values->objs[res];
+      }
+      for(int i=0; i < cls->nbases; i++){
+         PyObject_t *ret = getattr_noslot(cls->bases[i], attr);
+         if(ret->vtable->rtti != NOIMP_RTTI)
+            return ret;
+      }     
+   }
+   return &global_noimp;
+}
+
 PyObject_t* builtin_getattr(PyObject_t **v1, uint64_t alen, const PyTuple_t **v2){
    dprintf("Load attr %p %p\n", v1[0], v1[1]);
    dump(v1[0]);
@@ -180,26 +218,9 @@ PyObject_t* builtin_getattr(PyObject_t **v1, uint64_t alen, const PyTuple_t **v2
           return obj->itable->dispatch[res->slot_num]; 
        return obj->vtable->dispatch[res->slot_num]; 
    }else{
-       if(obj->vtable->rtti == CLASS_RTTI){
-          PyClass_t *cls = (PyClass_t*)obj;
-          int res = cls->locals_func(attr);
-          if(res >= 0 && cls->values->objs[res]->vtable->rtti != NOIMP_RTTI)
-             return cls->values->objs[res];
-       }
-       if(obj->vtable->rtti == OBJECT_RTTI){
-          PyBase_t *base = (PyBase_t*)obj;
-          auto it = base->attrs->find(attr->str);
-          if(it != base->attrs->end())
-             return (*it).second; 
-       }
-       if(obj->cls){
-          PyClass_t *cls = obj->cls;
-          int res = cls->locals_func(attr);
-          printf("R: %d\n", res);
-          if(res >= 0 && cls->values->objs[res]->vtable->rtti != NOIMP_RTTI){
-             return cls->values->objs[res];
-          }
-       }
+       PyObject_t *ret = getattr_noslot(obj,attr);
+       if(ret->vtable->rtti != NOIMP_RTTI)
+         return ret;
        printf("No slot: %s %lu\n", attr->str, attr->sz);
        THROW()       
    }
@@ -704,15 +725,21 @@ PyObject_t* builtin_buildclass(PyObject_t **v1, uint64_t alen, PyTuple_t **v2){
    dump(v1[1]);
    dump(v1[2]);
 
+   int nbases = alen - 2;
+
    PyFunc_t *constructor = (PyFunc_t*)(v1[0]);
    PyTuple_t *values=0;
    constructor->code->func(0,0,&values);
 
-   PyClass_t *cls = (PyClass_t*)malloc(sizeof(PyClass_t));
+   PyClass_t *cls = (PyClass_t*)malloc(sizeof(PyClass_t)+sizeof(PyObject_t*)*nbases);
    cls->vtable = &vtable_class;
    cls->itable = (vtable_t*)malloc(sizeof(vtable_t));
    cls->itable->rtti = 0;
    cls->cls=0;
+   cls->nbases=nbases;
+   for(int i=0; i < nbases; i++){
+      cls->bases[i] = (PyClass_t*)v1[2+i];
+   }
    cls->values = values;
    for(int i=0; i < 100; i++){
       cls->itable->dispatch[i] = &global_noimp;

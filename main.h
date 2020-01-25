@@ -31,6 +31,8 @@ extern "C" {
 
 #include "slots.h"
 
+#define DEBUG
+
 #ifdef DEBUG
 #define dprintf(...) printf(__VA_ARGS__)
 #else
