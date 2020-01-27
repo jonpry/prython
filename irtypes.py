@@ -88,6 +88,10 @@ pyexc_type = ir.global_context.get_identified_type("PyExc")
 pyexc_type.set_body(pyobj_type)
 ppyexc_type = pyexc_type.as_pointer()
 
+pycell_type = ir.global_context.get_identified_type("class.pycell")
+pycell_type.set_body(pyobj_type)
+ppycell_type = pycell_type.as_pointer()
+
 pynoimp_type = ir.global_context.get_identified_type("PyNotImplemented")
 pynoimp_type.set_body(pyobj_type)
 ppynoimp_type = pynoimp_type.as_pointer()

@@ -5,7 +5,7 @@ extern "C" {
 #define register 
 #include "get_slot.cpp"
 
-const char *rtti_strings[] = {"int", "float", "tuple", "str", "code", "func", "class", "bool", "NotImplemented","exception","list","dict","object","list_iter","dict_view", "dict_iter", "slice"};
+const char *rtti_strings[] = {"int", "float", "tuple", "str", "code", "func", "class", "bool", "NotImplemented","exception","list","dict","object","list_iter","dict_view", "dict_iter", "slice", "cell"};
 
 __attribute__((noinline)) void dump(const PyObject_t *v){
    if(!v){
@@ -170,7 +170,7 @@ PyObject_t* getattr_noslot(PyObject_t *obj, PyStr_t *attr){
    dump(obj);
    if(obj->vtable->rtti == CLASS_RTTI){
       PyClass_t *cls = (PyClass_t*)obj;
-      printf("Nbases: %d\n", cls->nbases);
+      dprintf("Nbases: %lu\n", cls->nbases);
 
       int res = cls->locals_func(attr);
       if(res >= 0 && cls->values->objs[res]->vtable->rtti != NOIMP_RTTI)
@@ -328,6 +328,10 @@ __attribute__((always_inline)) PyObject_t* load_name(PyObject_t *v1, PyObject_t*
          return &pyfunc_builtin_repr;
       if(strcmp(str->str,"buildclass") == 0)
          return &pyfunc_builtin_buildclass;
+      if(strcmp(str->str,"exit") == 0)
+         return &pyfunc_builtin_exit;
+      if(strcmp(str->str,"super") == 0)
+         return &pyfunc_builtin_super;
 
 
       //These things are actually globals
@@ -689,6 +693,16 @@ __attribute__((always_inline)) PyObject_t* str_add(PyObject_t **v1, uint64_t ale
     ret->str[newsz] = 0;
     return ret;
 }
+
+PyObject_t* builtin_super(PyObject_t **v1, uint64_t alen, PyTuple_t **v2){
+   printf("Called super %lu\n", alen); //TODO:
+   return 0;
+}
+
+PyObject_t* builtin_exit(PyObject_t **v1, uint64_t alen, PyTuple_t **v2){
+   exit(0); //TODO: return code
+}
+
 
 PyObject_t* builtin_new(PyObject_t **v1, uint64_t alen, PyTuple_t **v2){
    dprintf("new %lu, %p\n", alen, v1[0]);

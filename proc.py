@@ -147,7 +147,8 @@ integrals = {"int" : { "mul" , "add", "xor", "or", "and", "radd", "mod", "floord
              "list_iter" : {"next"},
              "dict_view" : { "iter" },
              "dict_iter" : { "next" },
-             "slice" : {} }
+             "slice" : {}, 
+             "cell" : {} }
 
 vtable_map = {}
 table_map = {}
@@ -202,32 +203,10 @@ store_subscr = ir.Function(module, store_subscr_type, name="store_subscr")
 local_lookup_type = ir.FunctionType(int32, (make_str_type(0)[1], make_tuple_type(0)[1], ir.ArrayType(int32,0).as_pointer(),ir.ArrayType(int32,0).as_pointer(), int32))
 local_lookup = ir.Function(module, local_lookup_type, name="local_lookup")
 
-builtin_print = ir.Function(module, fnty, name="builtin_print")
-builtin_buildclass = ir.Function(module, fnty, name="builtin_buildclass")
-
-builtin_repr = ir.Function(module, fnty, name="builtin_repr")
-builtin_repr.attributes.add("uwtable")
-
-builtin_str = ir.Function(module, fnty, name="builtin_str")
-builtin_str.attributes.add("uwtable")
-
-builtin_slice = ir.Function(module, fnty, name="builtin_slice")
-builtin_slice.attributes.add("uwtable")
-
-builtin_new = ir.Function(module, fnty, name="builtin_new")
-builtin_new.attributes.add("uwtable")
-
-builtin_len = ir.Function(module, fnty, name="builtin_len")
-builtin_len.attributes.add("uwtable")
-
-builtin_hash = ir.Function(module, fnty, name="builtin_hash")
-builtin_hash.attributes.add("uwtable")
-
-builtin_getattr = ir.Function(module, fnty, name="builtin_getattr")
-builtin_getattr.attributes.add("uwtable")
-
-builtin_setattr = ir.Function(module, fnty, name="builtin_setattr")
-builtin_setattr.attributes.add("uwtable")
+std_builtins = ["print","buildclass","repr","str","slice","new","len","hash","getattr","setattr","exit","super"]
+for builtin in std_builtins:
+    globals()['builtin_' + builtin] = ir.Function(module, fnty, name="builtin_" + builtin)
+    globals()['builtin_' + builtin].attributes.add("uwtable")
 
 build_map_type = ir.FunctionType(ppyobj_type,(pppyobj_type,int32))
 build_map = ir.Function(module, build_map_type, name="build_map")
@@ -479,6 +458,8 @@ i=0
 for c in codes:
    for con in c.co_consts:
       get_constant(con)
+   for con in c.co_cellvars:
+      get_constant(con)
 
 i=0
 
@@ -493,7 +474,7 @@ def replace_block(ins,block_idx,newblock,builder):
    blocks[block_idx][2] = newblock
    blocks[block_idx][3] = builder                
 
-builtin_names = ["buildclass", "str", "repr", "getattr", "setattr", "print_wrap", "new", "len", "hash"]
+builtin_names = ["buildclass", "str", "repr", "getattr", "setattr", "print_wrap", "new", "len", "hash", "exit", "super"]
 for n in builtin_names:
    get_constant(locals()['builtin_' + n])
 
@@ -630,6 +611,12 @@ for c in codes:
          tbl = builder.call(load_name, (ppyobj_type(None),builder.bitcast(get_constant(ins.argval),ppyobj_type)))
          builder.store(tbl,v)
          stack_ptr+=1
+       elif ins.opname=='LOAD_DEREF':  #TODO
+         stack_ptr+=1
+       elif ins.opname=='LOAD_CLOSURE': #TODO
+         v = stack[stack_ptr]
+         builder.store(builder.bitcast(get_constant(ins.argval),ppyobj_type),v)
+         stack_ptr+=1
        elif ins.opname=='STORE_FAST' or ins.opname=="STORE_NAME":
          v = builder.load(stack[stack_ptr-1])
          tbl = (local if ins.opname=="STORE_FAST" else name)[ins.arg]
@@ -733,6 +720,9 @@ for c in codes:
          if ins.arg == 0:         
             pass
          elif ins.arg == 1:         
+            args = builder.load(stack[stack_ptr-1])
+            stack_ptr-=1
+         elif ins.arg == 8: #TODO: closure args        
             args = builder.load(stack[stack_ptr-1])
             stack_ptr-=1
          else:

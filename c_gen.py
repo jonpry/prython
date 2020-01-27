@@ -5,7 +5,7 @@ slots = open("slots.h", "w")
 
 from magic import magic_methods as om
 
-sl = ["int", "float", "tuple", "str", "code", "func", "class", "bool", "noimp", "exception", "list", "dict", "object", "list_iter", "dict_view", "dict_iter", "slice"]
+sl = ["int", "float", "tuple", "str", "code", "func", "class", "bool", "noimp", "exception", "list", "dict", "object", "list_iter", "dict_view", "dict_iter", "slice", "cell"]
 
 
 gperf.write("""%{

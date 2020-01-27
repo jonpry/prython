@@ -165,7 +165,7 @@ extern PyFunc_t pyfunc_builtin_print_wrap, pyfunc_builtin_str,
                 pyfunc_builtin_repr, pyfunc_builtin_getattr, 
                 pyfunc_builtin_setattr, pyfunc_builtin_buildclass,
                 pyfunc_builtin_new, pyfunc_builtin_len,
-                pyfunc_builtin_hash;
+                pyfunc_builtin_hash, pyfunc_builtin_exit, pyfunc_builtin_super;
 
 extern PyClass_t pyclass_dict;
 
