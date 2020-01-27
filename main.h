@@ -44,6 +44,7 @@ class pyfunc;
 class pystr;
 class pyclass;
 class pytuple;
+struct pyctx;
 typedef pyobj* (*fnty)(struct pyobj **v1, uint64_t alen, pytuple **v2);
 typedef int32_t (*lfnty )(pystr *);
 
@@ -158,6 +159,11 @@ typedef class pyslice : public pyobj {
 public:
    PyInt_t *start,*stop,*step;
 } PySlice_t;
+
+typedef struct pyctx {
+   PyTuple_t *locals;
+   
+} PyCtx_t;
 
 extern PyNoImp_t global_noimp;
 extern PyBool_t global_false, global_true;

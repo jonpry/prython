@@ -519,6 +519,13 @@ for c in codes:
       builder.store(noimp.bitcast(ppyobj_type),l)
       name.append(l)
 
+   cell = []
+   for s in range(len(c.co_cellvars) + len(c.co_freevars)):
+      l = builder.alloca(ppyobj_type,1)
+      builder.store(noimp.bitcast(ppyobj_type),l)
+      cell.append(l)
+
+
    blocks = [[0,0,block,builder]]
    blocks_by_ofs = {0: block}
    block_num=0
@@ -611,11 +618,13 @@ for c in codes:
          tbl = builder.call(load_name, (ppyobj_type(None),builder.bitcast(get_constant(ins.argval),ppyobj_type)))
          builder.store(tbl,v)
          stack_ptr+=1
-       elif ins.opname=='LOAD_DEREF':  #TODO
-         stack_ptr+=1
-       elif ins.opname=='LOAD_CLOSURE': #TODO
+       elif ins.opname=='LOAD_DEREF':  #TODO: perform get on the pycell
          v = stack[stack_ptr]
-         builder.store(builder.bitcast(get_constant(ins.argval),ppyobj_type),v)
+         builder.store(builder.load(cell[ins.arg]),v)
+         stack_ptr+=1
+       elif ins.opname=='LOAD_CLOSURE': 
+         v = stack[stack_ptr]
+         builder.store(builder.load(cell[ins.arg]),v)
          stack_ptr+=1
        elif ins.opname=='STORE_FAST' or ins.opname=="STORE_NAME":
          v = builder.load(stack[stack_ptr-1])

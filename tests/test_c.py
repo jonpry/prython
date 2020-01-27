@@ -1,10 +1,14 @@
 #!/usr/bin/python3
 
+def bar():
+   pass
+
 class Foo(object):  
    c = 2
    d = lambda x: x
    def __init__(self,a):
       print(__class__)
+      bar()
       setattr(self,'b',a)
 
 class Foo2(Foo,object):
