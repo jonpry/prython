@@ -45,7 +45,7 @@ class pystr;
 class pyclass;
 class pytuple;
 struct pyctx;
-typedef pyobj* (*fnty)(struct pyobj **v1, uint64_t alen, pytuple **v2);
+typedef pyobj* (*fnty)(struct pyobj **v1, uint64_t alen, pyctx *v2);
 typedef int32_t (*lfnty )(pystr *);
 
 
@@ -162,7 +162,7 @@ public:
 
 typedef struct pyctx {
    PyTuple_t *locals;
-   
+   PyTuple_t *closures;
 } PyCtx_t;
 
 extern PyNoImp_t global_noimp;

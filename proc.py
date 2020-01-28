@@ -425,7 +425,7 @@ def pop_and_call(builder,func,stack_ptr, tgt, stack_vals, constants):
       replace_block(ins,block_idx,newblock,builder)
       builder.store(rval,stack[stack_ptr])
    else:
-      rval = builder.call(tgt,(args,int64(len(stack_vals)+len(constants)),pppytuple_type(None)))
+      rval = builder.call(tgt,(args,int64(len(stack_vals)+len(constants)),ppyctx_type(None)))
 
    builder.store(rval,stack[stack_ptr])
    stack_ptr+=1
@@ -710,11 +710,11 @@ for c in codes:
          #debug(builder,"post store " + str(ins.offset))
 
          if len(except_stack):
-            newblock,builder,rval = invoke(func,builder,call_function,(args,int64(ins.arg+1),pppytuple_type(None)))
+            newblock,builder,rval = invoke(func,builder,call_function,(args,int64(ins.arg+1),ppyctx_type(None)))
             replace_block(ins,block_idx,newblock,builder)
             builder.store(rval,stack[stack_ptr])
          else:
-            builder.store(builder.call(call_function,(args,int64(ins.arg+1),pppytuple_type(None))),stack[stack_ptr])
+            builder.store(builder.call(call_function,(args,int64(ins.arg+1),ppyctx_type(None))),stack[stack_ptr])
 
          stack_ptr+=1
          builder.call(stackrestore,[savestack])
@@ -775,7 +775,7 @@ for c in codes:
 
          for i in range(len(c.co_names)):
             tbuild.store(tbuild.load(name[i]), tbuild.gep(mem,[int32(0),int32(2),int32(i)]))        
-         tbuild.store(tbuild.bitcast(mem,ppytuple_type),tbuild.gep(func.args[2],[int32(0)]))
+         tbuild.store(tbuild.bitcast(mem,ppytuple_type),tbuild.gep(func.args[2],[int32(0),int32(1)]))
          
          tbuild.ret(tbuild.load(stack[stack_ptr-1]))
 
@@ -798,10 +798,10 @@ for c in codes:
          builder.store(v3,builder.gep(args,(int32(1),)))
 
          if len(except_stack):
-            newblock,builder,rval = invoke(func,builder,builtin_setattr,(args,int64(3),pppytuple_type(None)))
+            newblock,builder,rval = invoke(func,builder,builtin_setattr,(args,int64(3),ppyctx_type(None)))
             replace_block(ins,block_idx,newblock,builder)
          else:
-            builder.call(builtin_setattr,(args,int64(3),pppytuple_type(None)))
+            builder.call(builtin_setattr,(args,int64(3),ppyctx_type(None)))
        elif ins.opname=='STORE_SUBSCR': 
          v1 = builder.load(stack[stack_ptr-1])
          stack_ptr-=1
@@ -855,7 +855,7 @@ for c in codes:
             replace_block(ins,block_idx,newblock,builder)
             builder.store(rval,stack[stack_ptr])
          else:
-            rval = builder.call(builtin_getattr,(args,int64(2),pppytuple_type(None)))
+            rval = builder.call(builtin_getattr,(args,int64(2),ppyctx_type(None)))
 
          builder.store(rval,stack[stack_ptr])
          stack_ptr+=1      

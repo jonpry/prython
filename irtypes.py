@@ -58,9 +58,9 @@ ppyfunc_type = pyfunc_type.as_pointer()
 
 pyctx_type = ir.global_context.get_identified_type("struct.pyctx")
 ppyctx_type = pyctx_type.as_pointer()
-pyctx_type.set_body(pppytuple_type)
+pyctx_type.set_body(ppytuple_type, ppytuple_type)
 
-fnty = ir.FunctionType(ppyobj_type, (pppyobj_type, int64, pppytuple_type))
+fnty = ir.FunctionType(ppyobj_type, (pppyobj_type, int64, ppyctx_type))
 vlist = [ir.IntType(64),ir.ArrayType(ppyobj_type,len(magic_methods))]
 vtable_type.set_body(*vlist)
 
