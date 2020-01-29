@@ -110,7 +110,7 @@ def get_constant(con,name=""):
 
       g = ir.GlobalVariable(module,pyfunc_type,"pyfunc_" + con.name)      
       const_map[tup] = g
-      g.initializer = pyfunc_type([obj_con('func'),c,get_constant(con.name).bitcast(ppystr_type),make_tuple_type(0)[1](None), ppyclass_type(None)])
+      g.initializer = pyfunc_type([obj_con('func'),c,get_constant(con.name).bitcast(ppystr_type),make_tuple_type(0)[1](None), make_tuple_type(0)[1](None), ppyclass_type(None)])
    elif isinstance(con,clz):
       lookup = make_lookup(con.name + "_lookup",con.ary)
       name = get_constant(con.name).bitcast(ppystr_type)
@@ -748,6 +748,8 @@ for c in codes:
             builder.store(builder.bitcast(args,make_tuple_type(0)[1]),builder.gep(obj,(int32(0),int32(3))))
          else:
             builder.store(make_tuple_type(0)[1](None),builder.gep(obj,(int32(0),int32(3))))
+         builder.store(make_tuple_type(0)[1](None),builder.gep(obj,(int32(0),int32(4))))
+         builder.store(ppyclass_type(None),builder.gep(obj,(int32(0),int32(5))))
 
          builder.store(builder.bitcast(obj,ppyobj_type),stack[stack_ptr])
          stack_ptr+=1

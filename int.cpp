@@ -22,7 +22,7 @@ BOOL_DECL(int_ne,PyInt_t,vtable_int,aval != val)
 BOOL_DECL(int_eq,PyInt_t,vtable_int,aval == val) 
 UNARY_DECL(int_neg,PyInt_t,vtable_int,-val)
 
-PyObject_t* int_str(PyObject_t **v1, uint64_t alen, PyTuple_t **v2){
+PyObject_t* int_str(PyObject_t **v1, uint64_t alen, PyCtx_t *v2){
     char buf[32];
     sprintf(buf,"%ld", ((PyInt_t*)*v1)->val);
     PyStr_t *ret = (PyStr_t*)malloc(sizeof(PyStr_t) + strlen(buf)+1);
@@ -34,7 +34,7 @@ PyObject_t* int_str(PyObject_t **v1, uint64_t alen, PyTuple_t **v2){
     return ret;
 }
 
-__attribute__((always_inline)) PyObject_t* int_float(PyObject_t **v1, uint64_t alen, PyTuple_t **v2){
+__attribute__((always_inline)) PyObject_t* int_float(PyObject_t **v1, uint64_t alen, PyCtx_t *v2){
    PyFloat_t *ret = (PyFloat_t*)malloc(sizeof(PyFloat_t)); 
    ret->val = ((PyInt_t*)(v1[0]))->val; 
    ret->vtable = &vtable_float; 

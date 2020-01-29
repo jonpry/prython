@@ -2,7 +2,7 @@
 
 extern "C" {
 
-__attribute__((always_inline)) PyObject_t* dict_getitem(PyObject_t **v1, uint64_t alen, PyTuple_t **v2){
+__attribute__((always_inline)) PyObject_t* dict_getitem(PyObject_t **v1, uint64_t alen, PyCtx_t *v2){
     PyDict_t *dict = (PyDict_t*)v1[0];
     PyObject_t *key = v1[1];
 
@@ -13,7 +13,7 @@ __attribute__((always_inline)) PyObject_t* dict_getitem(PyObject_t **v1, uint64_
     return (*it).second;
 }
 
-PyObject_t* dict_str(PyObject_t **v1, uint64_t alen, PyTuple_t **v2){
+PyObject_t* dict_str(PyObject_t **v1, uint64_t alen, PyCtx_t *v2){
     char left = '{';
     char right = '}';
     PyDict_t *t = (PyDict_t*)(v1[0]);

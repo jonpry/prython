@@ -80,7 +80,7 @@ ppycode_type = pycode_type.as_pointer()
 
 pystr_type, ppystr_type = make_str_type(0,"class.pystr")
 
-pyfunc_type.set_body(pyobj_type, ppycode_type, ppystr_type, make_tuple_type(0)[1], ppyclass_type)
+pyfunc_type.set_body(pyobj_type, ppycode_type, ppystr_type, make_tuple_type(0)[1], make_tuple_type(0)[1], ppyclass_type)
 
 pyclass_type.set_body(pyobj_type, make_str_type(0)[1] ,ppyfunc_type,lfnty.as_pointer(), make_tuple_type(0)[1], make_tuple_type(0)[1], int64, ir.ArrayType(ppyclass_type,0))
 

@@ -17,7 +17,7 @@ BINARY_DECL_INT_TO_FLOAT(float_rfloordiv,PyFloat_t,vtable_float,floor(aval/val))
 BINARY_DECL_INT_TO_FLOAT(float_pow,PyFloat_t,vtable_float,pow(aval,val))
 BINARY_DECL_INT_TO_FLOAT(float_rpow,PyFloat_t,vtable_float,pow(aval,val))
 
-PyObject_t* float_str(PyObject_t **v1, uint64_t alen, PyTuple_t **v2){
+PyObject_t* float_str(PyObject_t **v1, uint64_t alen, PyCtx_t *v2){
     char buf[32];
     sprintf(buf,"%lf", ((PyFloat_t*)*v1)->val);
     PyStr_t *ret = (PyStr_t*)malloc(sizeof(PyStr_t) + strlen(buf)+1);

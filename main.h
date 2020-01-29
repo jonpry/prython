@@ -105,6 +105,7 @@ public:
   PyCode_t *code;
   PyStr_t *str;
   PyTuple_t *dargs;
+  PyTuple_t *closures;
   pyclass *cls;
 } PyFunc_t;
 
@@ -176,7 +177,7 @@ extern PyFunc_t pyfunc_builtin_print_wrap, pyfunc_builtin_str,
 extern PyClass_t pyclass_dict;
 
 #define BINARY_DECL(f,t,v,op) \
-__attribute__((always_inline)) PyObject_t* f(PyObject_t **v1, uint64_t alen, PyTuple_t **v2){ \
+__attribute__((always_inline)) PyObject_t* f(PyObject_t **v1, uint64_t alen, PyCtx_t *v2){ \
    if(v1[1]->vtable->rtti != v.rtti) \
      return &global_noimp; \
    t *ret = (t*)malloc(sizeof(t)); \
@@ -190,7 +191,7 @@ __attribute__((always_inline)) PyObject_t* f(PyObject_t **v1, uint64_t alen, PyT
 }
 
 #define BOOL_DECL(f,t,v,op) \
-__attribute__((always_inline)) PyObject_t* f(PyObject_t **v1, uint64_t alen, PyTuple_t **v2){ \
+__attribute__((always_inline)) PyObject_t* f(PyObject_t **v1, uint64_t alen, PyCtx_t *v2){ \
    if(v1[1]->vtable->rtti != v.rtti) \
      return &global_noimp; \
    int64_t aval = ((t*)(v1[0]))->val; \
@@ -211,7 +212,7 @@ __attribute__((always_inline)) PyObject_t* f(PyObject_t **v1, uint64_t alen, PyT
 }
 
 #define BINARY_DECL_INT_TO_FLOAT(f,t,v,...) \
-__attribute__((always_inline)) PyObject_t* f(PyObject_t **v1, uint64_t alen, PyTuple_t **v2){ \
+__attribute__((always_inline)) PyObject_t* f(PyObject_t **v1, uint64_t alen, PyCtx_t *v2){ \
    double val=0; \
    if(v1[1]->vtable->rtti != v.rtti) {\
       if(v1[1]->vtable->dispatch[FLOAT_SLOT]){ \
@@ -230,7 +231,7 @@ __attribute__((always_inline)) PyObject_t* f(PyObject_t **v1, uint64_t alen, PyT
    return ret; \
 }
 
-typedef PyObject_t* (*bin_func_t)(PyObject_t*, uint64_t alen, PyTuple_t**);
+typedef PyObject_t* (*bin_func_t)(PyObject_t*, uint64_t alen, PyCtx_t*);
 
 #undef malloc
 void* malloc(size_t) __attribute__((returns_nonnull));
