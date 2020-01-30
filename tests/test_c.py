@@ -7,15 +7,16 @@ class Foo(object):
    c = 2
    d = lambda x: x
    def __init__(self,a):
-      print(__class__)
+      #print(__class__)
       bar()
       setattr(self,'b',a)
 
 class Foo2(Foo,object):
    e = 3
    def __init__(self,a):
-      print(__class__)
-      super().__init__(a)
+      pass
+      #print(__class__)
+      #super().__init__(a)
 
 
 h = Foo2(1)

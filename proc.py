@@ -522,7 +522,9 @@ for c in codes:
    cell = []
    for s in range(len(c.co_cellvars) + len(c.co_freevars)):
       l = builder.alloca(ppyobj_type,1)
-      builder.store(noimp.bitcast(ppyobj_type),l)
+      tup = builder.load(builder.gep(func.args[2],[int32(0),int32(1)]))
+      
+      builder.store(builder.load(builder.gep(tup,[int32(0),int32(2),int32(s)])),l)
       cell.append(l)
 
 
@@ -777,7 +779,7 @@ for c in codes:
 
          for i in range(len(c.co_names)):
             tbuild.store(tbuild.load(name[i]), tbuild.gep(mem,[int32(0),int32(2),int32(i)]))        
-         tbuild.store(tbuild.bitcast(mem,ppytuple_type),tbuild.gep(func.args[2],[int32(0),int32(1)]))
+         tbuild.store(tbuild.bitcast(mem,ppytuple_type),tbuild.gep(func.args[2],[int32(0),int32(0)]))
          
          tbuild.ret(tbuild.load(stack[stack_ptr-1]))
 

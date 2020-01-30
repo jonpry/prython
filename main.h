@@ -250,4 +250,6 @@ __attribute__((always_inline)) PyObject_t* unop(PyObject_t *v1, uint32_t slot);
 
 enum {DICTVIEW_ITEMS,DICTVIEW_KEYS,DICTVIEW_VALUES};
 
+PyInt_t *make_int(int64_t v);
+
 } //Extern "C"
