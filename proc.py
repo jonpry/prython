@@ -137,7 +137,7 @@ integrals = {"int" : { "mul" , "add", "xor", "or", "and", "radd", "mod", "floord
              "str" : { "add", "str", "getitem", "hash"}, 
              "code" : {}, 
              "func" : { "str"}, 
-             "class" : {}, 
+             "class" : { "str"}, 
              "bool" : { "str" }, 
              "NotImplemented" : {},
              "exception" : {},
@@ -727,16 +727,15 @@ for c in codes:
          code = builder.load(stack[stack_ptr-1])
          stack_ptr-=1
 
-         args=None
-         if ins.arg == 0:         
-            pass
-         elif ins.arg == 1:         
+         args=make_tuple_type(0)[1](None)
+         clos=make_tuple_type(0)[1](None)
+         if ins.arg & 1:         
             args = builder.load(stack[stack_ptr-1])
             stack_ptr-=1
-         elif ins.arg == 8: #TODO: closure args        
-            args = builder.load(stack[stack_ptr-1])
+         if ins.arg & 8:    
+            clos = builder.load(stack[stack_ptr-1])
             stack_ptr-=1
-         else:
+         if ins.arg & ~9:
             assert(False)
 
          obj = builder.bitcast(builder.call(malloc,[int64(pyfunc_type.get_abi_size(td))]),ppyfunc_type)
@@ -746,11 +745,9 @@ for c in codes:
 
          builder.store(builder.bitcast(code,ppycode_type),builder.gep(obj,(int32(0),int32(1))))
          builder.store(builder.bitcast(func_name,ppystr_type),builder.gep(obj,(int32(0),int32(2))))
-         if args:
-            builder.store(builder.bitcast(args,make_tuple_type(0)[1]),builder.gep(obj,(int32(0),int32(3))))
-         else:
-            builder.store(make_tuple_type(0)[1](None),builder.gep(obj,(int32(0),int32(3))))
-         builder.store(make_tuple_type(0)[1](None),builder.gep(obj,(int32(0),int32(4))))
+         builder.store(builder.bitcast(args,make_tuple_type(0)[1]),builder.gep(obj,(int32(0),int32(3))))
+
+         builder.store(builder.bitcast(clos,make_tuple_type(0)[1]),builder.gep(obj,(int32(0),int32(4))))
          builder.store(ppyclass_type(None),builder.gep(obj,(int32(0),int32(5))))
 
          builder.store(builder.bitcast(obj,ppyobj_type),stack[stack_ptr])

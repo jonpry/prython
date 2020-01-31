@@ -14,8 +14,7 @@ class Foo(object):
 class Foo2(Foo,object):
    e = 3
    def __init__(self,a):
-      pass
-      #print(__class__)
+      print(__class__)
       #super().__init__(a)
 
 

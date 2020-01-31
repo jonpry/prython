@@ -666,6 +666,18 @@ PyObject_t* func_str(PyObject_t **v1, uint64_t alen, PyCtx_t *v2){
     return ret;
 }
 
+PyObject_t* class_str(PyObject_t **v1, uint64_t alen, PyCtx_t *v2){
+    //printf("func_str %p\n", v1, *v1);
+    PyClass_t* func = (PyClass_t*)(v1[0]);
+    PyStr_t *ret = (PyStr_t*)malloc(sizeof(PyStr_t) + strlen("<class  >") + 1);
+    ret->vtable = &vtable_str;
+    ret->itable = 0;
+    ret->cls=0;
+    sprintf(ret->str,"<class>");
+    ret->sz = strlen(ret->str);
+    return ret;
+}
+
 __attribute__((always_inline)) PyObject_t* str_str(PyObject_t **v1, uint64_t alen, PyCtx_t *v2){
     return v1[0];
 }
@@ -717,7 +729,11 @@ PyObject_t* builtin_new(PyObject_t **v1, uint64_t alen, PyCtx_t *v2){
    for(int i=1; i < alen; i++)
      args[i] = v1[i];
 
-   ((PyFunc_t*)obj->itable->dispatch[INIT_SLOT])->code->func(args,alen,0);
+   PyCtx_t ctx={};
+   ctx.closures = ((PyFunc_t*)obj->itable->dispatch[INIT_SLOT])->closures;
+   if(ctx.closures)
+      printf("closures: %lu %p\n", ctx.closures->sz, ctx.closures->objs[0]);
+   ((PyFunc_t*)obj->itable->dispatch[INIT_SLOT])->code->func(args,alen,&ctx);
 
    return obj;
 /*
@@ -735,11 +751,10 @@ PyObject_t* builtin_buildclass(PyObject_t **v1, uint64_t alen, PyCtx_t *v2){
 
    int nbases = alen - 2;
 
-   PyTuple_t *tup = make_tuple_i(0);
+   PyTuple_t *tup = make_tuple_i(0);  
 
    PyFunc_t *constructor = (PyFunc_t*)(v1[0]);
    PyCtx_t ctx = {0,tup};
-   constructor->code->func(0,0,&ctx);
 
    PyClass_t *cls = (PyClass_t*)malloc(sizeof(PyClass_t)+sizeof(PyObject_t*)*nbases);
    cls->vtable = &vtable_class;
@@ -747,9 +762,14 @@ PyObject_t* builtin_buildclass(PyObject_t **v1, uint64_t alen, PyCtx_t *v2){
    cls->itable->rtti = 0;
    cls->cls=0;
    cls->nbases=nbases;
+
    for(int i=0; i < nbases; i++){
       cls->bases[i] = (PyClass_t*)v1[2+i];
    }
+
+   tup->objs[0] = cls;
+   constructor->code->func(0,0,&ctx);
+
    cls->values = ctx.locals;;
    for(int i=0; i < 100; i++){
       cls->itable->dispatch[i] = &global_noimp;
