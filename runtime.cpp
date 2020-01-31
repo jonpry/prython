@@ -78,16 +78,6 @@ __attribute__((always_inline)) PyObject_t* store_subscr(PyObject_t *v1, PyObject
    return 0;
 }
 
-static PyObject_t* dict_items_int(PyObject_t **v1, int type){
-   printf("Items\n");
-   PyDict_View_t *ret = (PyDict_View_t*)malloc(sizeof(PyDict_View_t));
-   ret->dict = (PyDict_t*)v1[0];
-   ret->vtable = &vtable_dict_view;
-   ret->itable = 0;
-   ret->type = type;
-   return ret;
-}
-
 PyObject_t* builtin_slice(PyObject_t **v1, uint64_t alen, const PyCtx_t *v2){
    PySlice_t *slice = (PySlice_t*)malloc(sizeof(PySlice_t));
    slice->vtable = &vtable_slice;
@@ -100,36 +90,6 @@ PyObject_t* builtin_slice(PyObject_t **v1, uint64_t alen, const PyCtx_t *v2){
    return slice;
 }
 
-PyObject_t* dict_len(PyObject_t **v1, uint64_t alen, const PyCtx_t *v2){
-   PyDict_t *dict = (PyDict_t*)v1[0];
-   return make_int(dict->elems->size());
-}
-
-
-PyObject_t* dict_items(PyObject_t **v1, uint64_t alen, const PyCtx_t *v2){
-   return dict_items_int(v1,DICTVIEW_ITEMS);
-}
-
-PyObject_t* dict_keys(PyObject_t **v1, uint64_t alen, const PyCtx_t *v2){
-   return dict_items_int(v1,DICTVIEW_KEYS);
-}
-
-PyObject_t* dict_values(PyObject_t **v1, uint64_t alen, const PyCtx_t *v2){
-   return dict_items_int(v1,DICTVIEW_VALUES);
-}
-
-
-PyObject_t* dict_view_iter(PyObject_t **v1, uint64_t alen, const PyCtx_t *v2){
-   PyDict_Iterator_t *ret = (PyDict_Iterator_t*)malloc(sizeof(PyDict_Iterator_t));
-   ret->view = (PyDict_View_t*)v1[0];
-   ret->it = ret->view->dict->elems->begin();
-   ret->vtable = &vtable_dict_iter;
-   ret->itable = 0;
-   ret->cls=0;
-   return ret;
-}
-
-
 PyObject_t *make_tuple(PyObject_t **v1, uint64_t alen){
     PyTuple_t *ret = (PyTuple_t*)malloc(sizeof(PyTuple_t) + alen * sizeof(void*));
     ret->vtable = &vtable_tuple;
@@ -140,24 +100,6 @@ PyObject_t *make_tuple(PyObject_t **v1, uint64_t alen){
        ret->objs[i] = v1[i];
     }
     return ret;
-}
-
-PyObject_t* dict_iter_next(PyObject_t **v1, uint64_t alen, const PyCtx_t *v2){
-   PyDict_Iterator_t *iter = (PyDict_Iterator_t*)v1[0];
-   if(iter->it == iter->view->dict->elems->end()){
-      THROW();
-   } 
-   PyObject_t *ret = 0;
-   if(iter->view->type == DICTVIEW_KEYS){
-      ret = (*(iter->it)).first;
-   }else if(iter->view->type == DICTVIEW_VALUES){
-      ret = (*(iter->it)).second;
-   }else{ //Items
-      PyObject_t *tmp[2] = {(*(iter->it)).first,(*(iter->it)).second};
-      ret = make_tuple(tmp,2);
-   }
-   iter->it++;
-   return ret;
 }
 
 PyObject_t* getattr_noslot(PyObject_t *obj, PyStr_t *attr){
