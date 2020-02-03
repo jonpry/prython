@@ -62,7 +62,9 @@ def obj_con(s):
   return [vtable_map[s],pvtable_type(None),ppyclass_type(None)]
 
 ############## This function creates a global variables decleration for any compile time constants
-def get_constant(con,name=""):
+def get_constant(con,name="",closures=None):
+   #print(con)
+   #print(const_map.keys())
    const_idx = len(const_map)
    tup = (type(con),con)
    if tup in const_map:
@@ -85,6 +87,7 @@ def get_constant(con,name=""):
       const_map[tup] = g
       g.initializer = pyfloat_type([obj_con('float'),ir.Constant(dbl,con)])
    elif isinstance(con,str):
+      print("str")
       t,p = make_str_type(len(con)+1)
       g = ir.GlobalVariable(module,t,"global_" + str(const_idx) + name)
       const_map[tup] = g
@@ -110,7 +113,10 @@ def get_constant(con,name=""):
 
       g = ir.GlobalVariable(module,pyfunc_type,"pyfunc_" + con.name)      
       const_map[tup] = g
-      g.initializer = pyfunc_type([obj_con('func'),c,get_constant(con.name).bitcast(ppystr_type),make_tuple_type(0)[1](None), make_tuple_type(0)[1](None), ppyclass_type(None)])
+      t = make_tuple_type(0)[1](None)
+      if closures:
+         t = get_constant(closures).bitcast(make_tuple_type(0)[1])
+      g.initializer = pyfunc_type([obj_con('func'),c,get_constant(con.name).bitcast(ppystr_type),make_tuple_type(0)[1](None), t, ppyclass_type(None)])
    elif isinstance(con,clz):
       lookup = make_lookup(con.name + "_lookup",con.ary)
       name = get_constant(con.name).bitcast(ppystr_type)
@@ -124,7 +130,7 @@ def get_constant(con,name=""):
    else:
       print(type(con))
       assert(False)   
-
+   print("return")
    g.global_constant = True
    return g
 
@@ -282,8 +288,8 @@ call_function = ir.Function(module,fnty, name="call_function")
 call_function.attributes.add("uwtable")
 
 di_file = module.add_debug_info("DIFile", {
-    "filename":        "test.py",
-    "directory":       "",
+    "filename":        "test_c.py",
+    "directory":       "tests",
 })
 
 di_compileunit = module.add_debug_info("DICompileUnit", {
@@ -474,9 +480,11 @@ def replace_block(ins,block_idx,newblock,builder):
    blocks[block_idx][2] = newblock
    blocks[block_idx][3] = builder                
 
-builtin_names = ["buildclass", "str", "repr", "getattr", "setattr", "print_wrap", "new", "len", "hash", "exit", "super"]
+builtin_names = ["buildclass", "str", "repr", "getattr", "setattr", "print_wrap", "new", "len", "hash", "exit"]
 for n in builtin_names:
    get_constant(locals()['builtin_' + n])
+
+get_constant(builtin_super,closures=('__class__',))
 
 ############## Emit llvm for each code section
 for c in codes:

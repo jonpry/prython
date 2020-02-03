@@ -15,7 +15,7 @@ class Foo2(Foo,object):
    e = 3
    def __init__(self,a):
       print(__class__)
-      #super().__init__(a)
+      super().__init__(a)
 
 
 h = Foo2(1)

@@ -296,21 +296,26 @@ __attribute__((always_inline)) PyObject_t* unpack_sequence(PyObject_t **v1, uint
 
 __attribute__((always_inline)) PyObject_t* call_function(PyObject_t **v1, uint64_t alen, PyCtx_t* v2){
     PyObject_t *tgt = (PyObject_t*)v1[0];
+    PyFunc_t *func=0;
     if(tgt->vtable->rtti == FUNC_RTTI){
-       PyFunc_t *func = (PyFunc_t*)tgt;
+       func = (PyFunc_t*)tgt;
        dprintf("Call via direct\n");
-       return func->code->func(v1+1, alen-1, 0);
-    }
-    if(tgt->vtable->dispatch[CALL_SLOT] && tgt->vtable->dispatch[CALL_SLOT]->vtable->rtti != NOIMP_RTTI){
+       v1++;
+       alen--;
+    } else if(tgt->itable->dispatch[CALL_SLOT] && tgt->itable->dispatch[CALL_SLOT]->vtable->rtti != NOIMP_RTTI){
+       dprintf("Can call via itable\n");
+       //Instance attributes get self
+       func = ((PyFunc_t*)tgt->itable->dispatch[CALL_SLOT]);
+    } else if(tgt->vtable->dispatch[CALL_SLOT] && tgt->vtable->dispatch[CALL_SLOT]->vtable->rtti != NOIMP_RTTI){
        dprintf("Can call via vtable\n");
+       func = ((PyFunc_t*)tgt->vtable->dispatch[CALL_SLOT]);
     }
 
-    if(tgt->itable->dispatch[CALL_SLOT] && tgt->itable->dispatch[CALL_SLOT]->vtable->rtti != NOIMP_RTTI){
-       dprintf("Can call via itable\n");
-       assert(tgt->itable->dispatch[CALL_SLOT]->vtable->rtti == FUNC_RTTI);
-       //Instance attributes get self
-       PyObject_t *ret = ((PyFunc_t*)tgt->itable->dispatch[CALL_SLOT])->code->func(v1,alen,0);
-       return ret;
+    if(func){
+       assert(func->vtable->rtti == FUNC_RTTI);
+       PyCtx_t ctx={};
+       ctx.closures=func->closures;
+       return func->code->func(v1, alen, &ctx);
     }
 
     THROW()
@@ -642,8 +647,10 @@ __attribute__((always_inline)) PyObject_t* str_add(PyObject_t **v1, uint64_t ale
     return ret;
 }
 
-PyObject_t* builtin_super(PyObject_t **v1, uint64_t alen, PyCtx_t *v2){
-   printf("Called super %lu\n", alen); //TODO:
+PyObject_t* builtin_super(PyObject_t **v1, uint64_t alen, PyCtx_t *ctx){
+   PyClass_t *cls = (PyClass_t*)ctx->closures->objs[0];
+   printf("Called super %lu %p\n", alen, cls); //TODO:
+   dump(cls);
    return 0;
 }
 
