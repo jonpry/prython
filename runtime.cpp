@@ -651,6 +651,7 @@ PyObject_t* builtin_super(PyObject_t **v1, uint64_t alen, PyCtx_t *ctx){
    PyClass_t *cls = (PyClass_t*)ctx->closures->objs[0];
    printf("Called super %lu %p\n", alen, cls); //TODO:
    dump(cls);
+   dump(v1[0]);
    return 0;
 }
 

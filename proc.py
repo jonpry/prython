@@ -712,19 +712,28 @@ for c in codes:
 
        elif ins.opname=='CALL_FUNCTION' or ins.opname=='CALL_METHOD': 
          savestack = builder.call(stacksave,[])
-         args = builder.alloca(ppyobj_type,ins.arg+1)
          cnt = ins.arg+ (2 if ins.opname=='CALL_METHOD' else 1)
+         args = builder.alloca(ppyobj_type,cnt)
+         if len(local):
+            args_super = builder.alloca(ppyobj_type,2)
+            builder.store(builder.bitcast(get_constant(builtin_super),ppyobj_type),builder.gep(args_super,(int32(0),)))
+            builder.store(builder.load(local[0]),builder.gep(args_super,(int32(1),)))
+
          for i in range(cnt): 
             builder.store(builder.load(stack[stack_ptr-1]),builder.gep(args,(int32(cnt - i - 1),))) #TODO: i think args are reversed
             stack_ptr-=1
          #debug(builder,"post store " + str(ins.offset))
-
+         cnt = int64(cnt)
+         if len(local):
+            foo = builder.icmp_unsigned('==',builder.load(args),builder.bitcast(get_constant(builtin_super),ppyobj_type))
+            cnt = builder.select(foo,int64(2),cnt)
+            args = builder.select(foo,args_super,args)
          if len(except_stack):
-            newblock,builder,rval = invoke(func,builder,call_function,(args,int64(ins.arg+1),ppyctx_type(None)))
+            newblock,builder,rval = invoke(func,builder,call_function,(args,cnt,ppyctx_type(None)))
             replace_block(ins,block_idx,newblock,builder)
             builder.store(rval,stack[stack_ptr])
          else:
-            builder.store(builder.call(call_function,(args,int64(ins.arg+1),ppyctx_type(None))),stack[stack_ptr])
+            builder.store(builder.call(call_function,(args,cnt,ppyctx_type(None))),stack[stack_ptr])
 
          stack_ptr+=1
          builder.call(stackrestore,[savestack])
