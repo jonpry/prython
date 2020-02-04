@@ -124,6 +124,7 @@ public:
   lfnty  locals_func;
   PyTuple_t *locals;
   PyTuple_t *values;
+  vtable_t *proto_table;
   uint64_t nbases;
   class pyclass *bases[];
 } PyClass_t;

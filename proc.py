@@ -124,7 +124,7 @@ def get_constant(con,name="",closures=None):
       tgts = get_constant(con.funcs).bitcast(ppytuple_type)
       g = ir.GlobalVariable(module,pyclass_type,"pyclass_" + con.name)      
       const_map[tup] = g
-      g.initializer = pyclass_type([obj_con(con.name),name,ppyfunc_type(None),lookup,locs,tgts,int64(0),ir.ArrayType(ppyclass_type,0)(None)])
+      g.initializer = pyclass_type([obj_con('class'),name,ppyfunc_type(None),lookup,locs,tgts,vtable_map[con.name],int64(0),ir.ArrayType(ppyclass_type,0)(None)])
    elif isinstance(con,ir.values.Constant):
       return con
    else:

@@ -648,11 +648,18 @@ __attribute__((always_inline)) PyObject_t* str_add(PyObject_t **v1, uint64_t ale
 }
 
 PyObject_t* builtin_super(PyObject_t **v1, uint64_t alen, PyCtx_t *ctx){
-   PyClass_t *cls = (PyClass_t*)ctx->closures->objs[0];
-   printf("Called super %lu %p\n", alen, cls); //TODO:
+   //PyClass_t *cls = (PyClass_t*)ctx->closures->objs[0];
+   PyBase_t *obj = (PyBase_t*)v1[0];
+   PyClass_t *cls = obj->cls;
+   printf("Called super %lu %p %p %p %lu\n", alen, cls, obj, obj->cls, cls->nbases); //TODO:
    dump(cls);
    dump(v1[0]);
-   return 0;
+   assert(cls->nbases);
+   PyBase_t *nobj=(PyBase_t*)malloc(sizeof(PyBase_t));
+   *nobj = *obj;
+   nobj->cls = cls->bases[0];
+   nobj->vtable = cls->bases[0]->proto_table;
+   return nobj;
 }
 
 PyObject_t* builtin_exit(PyObject_t **v1, uint64_t alen, PyCtx_t *v2){
@@ -667,12 +674,12 @@ PyObject_t* builtin_new(PyObject_t **v1, uint64_t alen, PyCtx_t *v2){
    PyClass_t *cls = (PyClass_t*)v1[0];
 
    PyBase_t *obj = (PyBase_t*)malloc(sizeof(PyBase_t));
-   obj->vtable = &vtable_object;
-   obj->itable = cls->itable;
+   obj->vtable = cls->proto_table;
+   obj->itable = 0;
    obj->cls = cls;
    obj->attrs = new std::unordered_map<std::string,PyObject_t*>();
  
-   dump(obj->itable->dispatch[INIT_SLOT]);
+   dump(obj->vtable->dispatch[INIT_SLOT]);
 
    PyObject_t *args[alen];
    args[0] = obj;
@@ -680,10 +687,10 @@ PyObject_t* builtin_new(PyObject_t **v1, uint64_t alen, PyCtx_t *v2){
      args[i] = v1[i];
 
    PyCtx_t ctx={};
-   ctx.closures = ((PyFunc_t*)obj->itable->dispatch[INIT_SLOT])->closures;
+   ctx.closures = ((PyFunc_t*)obj->vtable->dispatch[INIT_SLOT])->closures;
    if(ctx.closures)
       printf("closures: %lu %p\n", ctx.closures->sz, ctx.closures->objs[0]);
-   ((PyFunc_t*)obj->itable->dispatch[INIT_SLOT])->code->func(args,alen,&ctx);
+   ((PyFunc_t*)obj->vtable->dispatch[INIT_SLOT])->code->func(args,alen,&ctx);
 
    return obj;
 /*
@@ -693,7 +700,7 @@ PyObject_t* builtin_new(PyObject_t **v1, uint64_t alen, PyCtx_t *v2){
 }
 
 PyObject_t* builtin_buildclass(PyObject_t **v1, uint64_t alen, PyCtx_t *v2){
-   dprintf("Buildclass\n");
+   dprintf("Buildclass %lu\n", alen);
    dprintf("%p %p %p\n", v1[0], v1[1], v1[2]);
    dump(v1[0]);
    dump(v1[1]);
@@ -709,19 +716,26 @@ PyObject_t* builtin_buildclass(PyObject_t **v1, uint64_t alen, PyCtx_t *v2){
    PyClass_t *cls = (PyClass_t*)malloc(sizeof(PyClass_t)+sizeof(PyObject_t*)*nbases);
    cls->vtable = &vtable_class;
    cls->itable = (vtable_t*)malloc(sizeof(vtable_t));
-   cls->itable->rtti = 0;
+   cls->itable->rtti=0;
+   cls->proto_table = (vtable_t*)malloc(sizeof(vtable_t));
+   cls->proto_table->rtti = OBJECT_RTTI;
    cls->cls=0;
    cls->nbases=nbases;
 
+   printf("Cls@ %p\n", cls);
+
    for(int i=0; i < nbases; i++){
       cls->bases[i] = (PyClass_t*)v1[2+i];
+      dump(cls->bases[0]);
+
    }
 
    tup->objs[0] = cls;
    constructor->code->func(0,0,&ctx);
 
-   cls->values = ctx.locals;;
+   cls->values = ctx.locals;
    for(int i=0; i < 100; i++){
+      cls->proto_table->dispatch[i] = &global_noimp;
       cls->itable->dispatch[i] = &global_noimp;
    }
 
@@ -735,7 +749,7 @@ PyObject_t* builtin_buildclass(PyObject_t **v1, uint64_t alen, PyCtx_t *v2){
       const SlotResult *res = in_word_set(str->str,str->sz);
       if(res){
          dprintf("L: %d\n", res->slot_num);
-         cls->itable->dispatch[res->slot_num] = ctx.locals->objs[i];
+         cls->proto_table->dispatch[res->slot_num] = ctx.locals->objs[i];
       }
    }
 
